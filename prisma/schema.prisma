@@ -1,0 +1,702 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  CASHIER
+  ACCOUNTANT
+  WAREHOUSE
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String?
+  email     String   @unique
+  password  String
+  role      UserRole @default(CASHIER)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Client {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  email     String?  @unique
+  phone     String?
+  address   String?
+  type      String   @default("PARTICULIER")  // PARTICULIER or PROFESSIONNEL
+  matriculeFiscale String?
+  createdAt DateTime @default(now())
+  
+  facturesClient      FactureClient[]
+  devisClient         DevisClient[]
+  commandesClient     CommandeClient[]
+  bonsCommandeClient  BonCommandeClient[]
+  bonsLivraisonClient BonLivraisonClient[]
+  avoirsClient        AvoirClient[]
+}
+
+model Fournisseur {
+  id                    Int      @id @default(autoincrement())
+  nom                   String
+  email                 String?
+  telephone             String?
+  adresse               String?  @db.Text
+  ville                 String?
+  codePostal            String?
+  pays                  String?  @default("Tunisie")
+  matriculeFiscale      String?
+  actif                 Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  bonDeCommandes        BonDeCommande[]
+  bonDeReceptions       BonDeReception[]
+  factureFournisseurs   FactureFournisseur[]
+  facturesAvoir         FactureAvoir[]
+  devis                 Devis[]
+  historiqueAchats      HistoriqueAchatFournisseur[]
+}
+
+enum StatutDocument {
+  BROUILLON
+  ENVOYE
+  ACCEPTE
+  REFUSE
+  ANNULE
+  LIVRE
+  PAYE
+}
+
+enum SourceCommande {
+  WEBSITE
+  FACEBOOK
+  INSTAGRAM
+  WHATSAPP
+  PHONE
+  OTHER
+}
+
+enum StatutCommandeClient {
+  EN_ATTENTE_VALIDATION
+  ANNULE
+  EN_COURS_PREPARATION
+  EN_COURS_LIVRAISON
+  DEPOT_TRANSPORTEUR
+  PAS_DE_REPONSE_1
+  PAS_DE_REPONSE_2
+  INJOIGNABLE_1
+  INJOIGNABLE_2
+  ANNULE_1
+  ANNULE_2
+  RETOUR
+  LIVRE
+}
+
+enum Transporter {
+  ARAMEX
+  FIRST_DELIVERY
+  OUR_COMPANY
+}
+
+enum DeliveryStatus {
+  PENDING
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  CANCELLED
+  DEPOT_TRANSPORTEUR
+  RETOUR
+  PAS_DE_REPONSE_1
+  PAS_DE_REPONSE_2
+  INJOIGNABLE_1
+  INJOIGNABLE_2
+  ANNULE_1
+  ANNULE_2
+}
+
+enum DeliveryDirection {
+  OUTBOUND
+  RETURN
+}
+
+enum ReturnStatus {
+  PENDING
+  IN_TRANSIT
+  STOCKED
+}
+
+model DeliveryEvent {
+  id         Int           @id @default(autoincrement())
+  commandeId Int
+  commande   CommandeClient @relation(fields: [commandeId], references: [id], onDelete: Cascade)
+  transporter Transporter?
+  oldStatus  DeliveryStatus?
+  newStatus  DeliveryStatus?
+  direction  DeliveryDirection @default(OUTBOUND)
+  createdAt  DateTime @default(now())
+}
+
+model BonDeCommande {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  fournisseurId   Int
+  fournisseur     Fournisseur @relation(fields: [fournisseurId], references: [id])
+  date            DateTime @default(now())
+  dateEcheance    DateTime?
+  statut          StatutDocument @default(BROUILLON)
+  montantHT       Float
+  montantTVA      Float
+  montantTTC      Float
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneBonDeCommande[]
+  facturesFournisseur FactureFournisseur[]
+}
+
+model LigneBonDeCommande {
+  id                Int      @id @default(autoincrement())
+  bonDeCommandeId   Int
+  bonDeCommande     BonDeCommande @relation(fields: [bonDeCommandeId], references: [id], onDelete: Cascade)
+  productId         Int?
+  product           Product? @relation(fields: [productId], references: [id])
+  designation       String
+  quantite          Int
+  prixUnitaireHT    Float
+  tauxTVA           Float    @default(19)
+  montantHT         Float
+  montantTVA        Float
+  montantTTC        Float
+}
+
+model BonDeReception {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  fournisseurId   Int
+  fournisseur     Fournisseur @relation(fields: [fournisseurId], references: [id])
+  bonDeCommandeNumero String?
+  date            DateTime @default(now())
+  statut          StatutDocument @default(BROUILLON)
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneBonDeReception[]
+}
+
+model LigneBonDeReception {
+  id                Int      @id @default(autoincrement())
+  bonDeReceptionId  Int
+  bonDeReception    BonDeReception @relation(fields: [bonDeReceptionId], references: [id], onDelete: Cascade)
+  productId         Int?
+  product           Product? @relation(fields: [productId], references: [id])
+  designation       String
+  quantiteRecue     Int
+  quantiteCommandee Int?
+  prixUnitaireHT    Float
+}
+
+model FactureFournisseur {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  fournisseurId   Int
+  fournisseur     Fournisseur @relation(fields: [fournisseurId], references: [id])
+  bonCommandeId   Int?
+  bonCommande     BonDeCommande? @relation(fields: [bonCommandeId], references: [id])
+  date            DateTime @default(now())
+  dateEcheance    DateTime?
+  statut          StatutDocument @default(BROUILLON)
+  montantHT       Float
+  montantTVA      Float
+  timbreFiscal    Float    @default(1.0)
+  montantTTC      Float
+  montantPaye     Float    @default(0)
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneFactureFournisseur[]
+}
+
+model LigneFactureFournisseur {
+  id                    Int      @id @default(autoincrement())
+  factureId             Int
+  facture               FactureFournisseur @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  productId             Int?
+  product               Product? @relation(fields: [productId], references: [id])
+  designation           String
+  fournisseurReference  String?  // Reference du fournisseur pour ce produit
+  quantite              Int
+  quantiteRestante      Int      @default(0) // Quantité restante à facturer (pour FIFO)
+  prixUnitaire          Float
+  tauxTVA               Float    @default(19)
+  montantHT             Float
+  montantTVA            Float
+}
+
+model FactureAvoir {
+  id                      Int      @id @default(autoincrement())
+  numero                  String   @unique
+  fournisseurId           Int
+  fournisseur             Fournisseur @relation(fields: [fournisseurId], references: [id])
+  factureFournisseurNumero String?
+  date                    DateTime @default(now())
+  statut                  StatutDocument @default(BROUILLON)
+  montantHT               Float
+  montantTVA              Float
+  montantTTC              Float
+  motif                   String?  @db.Text
+  notes                   String?  @db.Text
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  
+  lignes                  LigneFactureAvoir[]
+}
+
+model LigneFactureAvoir {
+  id              Int      @id @default(autoincrement())
+  factureAvoirId  Int
+  factureAvoir    FactureAvoir @relation(fields: [factureAvoirId], references: [id], onDelete: Cascade)
+  productId       Int?
+  product         Product? @relation(fields: [productId], references: [id])
+  designation     String
+  quantite        Int
+  prixUnitaireHT  Float
+  tauxTVA         Float    @default(19)
+  montantHT       Float
+  montantTVA      Float
+  montantTTC      Float
+}
+
+model Devis {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  fournisseurId   Int
+  fournisseur     Fournisseur @relation(fields: [fournisseurId], references: [id])
+  date            DateTime @default(now())
+  dateValidite    DateTime?
+  statut          StatutDocument @default(BROUILLON)
+  montantHT       Float
+  montantTVA      Float
+  montantTTC      Float
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneDevis[]
+}
+
+model LigneDevis {
+  id              Int      @id @default(autoincrement())
+  devisId         Int
+  devis           Devis @relation(fields: [devisId], references: [id], onDelete: Cascade)
+  productId       Int?
+  product         Product? @relation(fields: [productId], references: [id])
+  designation     String
+  quantite        Int
+  prixUnitaireHT  Float
+  tauxTVA         Float    @default(19)
+  montantHT       Float
+  montantTVA      Float
+  montantTTC      Float
+}
+
+model HistoriqueAchatFournisseur {
+  id                    Int      @id @default(autoincrement())
+  fournisseurId         Int
+  fournisseur           Fournisseur @relation(fields: [fournisseurId], references: [id])
+  productId             Int
+  product               Product @relation(fields: [productId], references: [id])
+  fournisseurReference  String?  // Reference du fournisseur pour ce produit
+  quantite              Int
+  prixUnitaireHT        Float
+  montantTotalHT        Float
+  documentType          String   // BON_COMMANDE, FACTURE, etc.
+  documentNumero        String
+  date                  DateTime
+  createdAt             DateTime @default(now())
+}
+
+model Product {
+  id                   Int      @id @default(autoincrement())
+  reference            String?
+  sku                  String?
+  barcode              String?
+  serialNumber         String?  @db.Text
+  name                 String
+  description          String?  @db.Text
+  category             String?
+  price                Float
+  promoPrice           Float?
+  cost                 Float?
+  tvaRate              Float    @default(19)
+  isService            Boolean  @default(false)
+  lowStockThreshold    Int?     @default(0)
+  invoiceableQuantity  Int      @default(0)
+  prestashopId         String?  @unique
+  prestashopLastSynced DateTime?
+  isOnline             Boolean  @default(false)
+  stockAvailables      StockAvailable[]
+  createdAt            DateTime @default(now())
+  
+  lignesBonCommande    LigneBonDeCommande[]
+  lignesBonReception   LigneBonDeReception[]
+  lignesFactureFournisseur LigneFactureFournisseur[]
+  lignesFactureAvoir   LigneFactureAvoir[]
+  lignesDevis          LigneDevis[]
+  historiqueAchats     HistoriqueAchatFournisseur[]
+  
+  lignesFactureClient     LigneFactureClient[]
+  lignesDevisClient       LigneDevisClient[]
+  lignesCommandeClient    LigneCommandeClient[]
+  lignesBonCommandeClient LigneBonCommandeClient[]
+  lignesBonLivraisonClient LigneBonLivraisonClient[]
+  lignesAvoirClient       LigneAvoirClient[]
+  invoiceSubstitutions    InvoiceSubstitution[] @relation("RealProduct")
+  usedInInvoices          InvoiceSubstitution[] @relation("InvoicedProduct")
+}
+
+model InvoiceSubstitution {
+  id                Int      @id @default(autoincrement())
+  factureClientId   Int
+  realProductId     Int
+  invoicedProductId Int
+  quantity          Int
+  createdAt         DateTime @default(now())
+  
+  factureClient     FactureClient @relation(fields: [factureClientId], references: [id], onDelete: Cascade)
+  realProduct       Product @relation("RealProduct", fields: [realProductId], references: [id])
+  invoicedProduct   Product @relation("InvoicedProduct", fields: [invoicedProductId], references: [id])
+  
+  @@index([factureClientId])
+  @@index([realProductId])
+  @@index([invoicedProductId])
+}
+
+model StockAvailable {
+  id         Int      @id @default(autoincrement())
+  productId  Int
+  quantity   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+}
+
+// Client Documents Models
+model FactureClient {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  clientId        Int
+  client          Client   @relation(fields: [clientId], references: [id])
+  date            DateTime @default(now())
+  dateEcheance    DateTime?
+  statut          StatutDocument @default(BROUILLON)
+  montantHT       Float
+  montantTVA      Float
+  timbreFiscal    Float    @default(1.0)
+  montantTTC      Float
+  deliveryFee     Float    @default(0)
+  deliveryTvaRate Float    @default(7)
+  remise          Float    @default(0)  // Discount percentage
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneFactureClient[]
+  avoirsClient    AvoirClient[]
+  commandesClient CommandeClient[]
+  bonsCommandeClient BonCommandeClient[] @relation("BonCommandeToFacture")
+  bonsLivraisonClient BonLivraisonClient[] @relation("BonLivraisonToFacture")
+  invoiceSubstitutions InvoiceSubstitution[]
+}
+
+model LigneFactureClient {
+  id                Int      @id @default(autoincrement())
+  factureClientId   Int
+  factureClient     FactureClient @relation(fields: [factureClientId], references: [id], onDelete: Cascade)
+  productId         Int?
+  product           Product? @relation(fields: [productId], references: [id])
+  designation       String
+  quantite          Int
+  prixUnitaireHT    Float    // Prix before discount
+  remise            Float    @default(0)  // Discount percentage on unit price
+  tauxTVA           Float    @default(19)
+  montantHT         Float
+  montantTVA        Float
+  montantTTC        Float
+}
+
+model DevisClient {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  clientId        Int
+  client          Client   @relation(fields: [clientId], references: [id])
+  date            DateTime @default(now())
+  dateValidite    DateTime?
+  statut          StatutDocument @default(BROUILLON)
+  montantHT       Float
+  montantTVA      Float
+  timbreFiscal    Float    @default(1.0)
+  montantTTC      Float
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneDevisClient[]
+  commandesClient CommandeClient[]
+}
+
+model LigneDevisClient {
+  id                Int      @id @default(autoincrement())
+  devisClientId     Int
+  devisClient       DevisClient @relation(fields: [devisClientId], references: [id], onDelete: Cascade)
+  productId         Int?
+  product           Product? @relation(fields: [productId], references: [id])
+  designation       String
+  quantite          Int
+  prixUnitaireHT    Float
+  tauxTVA           Float    @default(19)
+  montantHT         Float
+  montantTVA        Float
+  montantTTC        Float
+}
+
+model CommandeClient {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  clientId        Int
+  client          Client   @relation(fields: [clientId], references: [id])
+  devisClientId   Int?
+  devisClient     DevisClient? @relation(fields: [devisClientId], references: [id])
+  factureClientId Int?
+  factureClient   FactureClient? @relation(fields: [factureClientId], references: [id])
+  bonCommandeClientId Int?
+  bonCommandeClient BonCommandeClient? @relation(fields: [bonCommandeClientId], references: [id])
+  bonLivraisonClientId Int?
+  bonLivraisonClient BonLivraisonClient? @relation("CommandeBonLivraison", fields: [bonLivraisonClientId], references: [id])
+  date            DateTime @default(now())
+  dateEcheance    DateTime?
+  statut          StatutCommandeClient @default(EN_ATTENTE_VALIDATION)
+  source          SourceCommande @default(OTHER)
+  montantHT       Float
+  montantTVA      Float
+  timbreFiscal    Float    @default(1.0)
+  montantTTC      Float
+  remise          Float    @default(0)  // Discount percentage
+  deliveryFee     Float    @default(0)  // Delivery fee (8 DT if not free)
+  deliveryTvaRate Float    @default(7)
+  returnTrackingNumber String?
+  returnStatus    ReturnStatus @default(PENDING)
+  returnNote      String?  @db.Text
+  returnDate      DateTime?
+  returnCreatedAvoirId Int?
+  returnCreatedAvoir   AvoirClient? @relation("CommandeReturnAvoir", fields: [returnCreatedAvoirId], references: [id])
+  notes           String?  @db.Text
+  printTicket     Boolean  @default(false)
+  montantDonne    Float?
+  monnaieRendue   Float?
+  
+  // Transporter & Delivery Tracking
+  transporter     Transporter?
+  trackingNumber  String?
+  deliveryStatus  DeliveryStatus?
+  deliveryDate    DateTime?
+  deliveryNote    String?  @db.Text
+  lastTrackingCheck DateTime?
+  transporterInvoiced Boolean @default(false)
+  transporterInvoiceId Int?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneCommandeClient[]
+  bonsLivraison   BonLivraisonClient[]
+  deliveryEvents  DeliveryEvent[]
+}
+
+model BonCommandeClient {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  clientId        Int
+  client          Client   @relation(fields: [clientId], references: [id])
+  bonLivraisonClientId Int?
+  bonLivraisonClient BonLivraisonClient? @relation("BonCommandeToBonLivraison", fields: [bonLivraisonClientId], references: [id])
+  factureClientId Int?
+  factureClient   FactureClient? @relation("BonCommandeToFacture", fields: [factureClientId], references: [id])
+  date            DateTime @default(now())
+  dateEcheance    DateTime?
+  statut          StatutDocument @default(BROUILLON)
+  montantHT       Float
+  montantTVA      Float
+  timbreFiscal    Float    @default(1.0)
+  montantTTC      Float
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneBonCommandeClient[]
+  bonsLivraison   BonLivraisonClient[]
+  commandesClient CommandeClient[]
+}
+
+model LigneBonCommandeClient {
+  id                    Int      @id @default(autoincrement())
+  bonCommandeClientId   Int
+  bonCommandeClient     BonCommandeClient @relation(fields: [bonCommandeClientId], references: [id], onDelete: Cascade)
+  productId             Int?
+  product               Product? @relation(fields: [productId], references: [id])
+  designation           String
+  quantite              Int
+  prixUnitaireHT        Float
+  tauxTVA               Float    @default(19)
+  montantHT             Float
+  montantTVA            Float
+  montantTTC            Float
+}
+
+model BonLivraisonClient {
+  id                    Int      @id @default(autoincrement())
+  numero                String   @unique
+  clientId              Int
+  client                Client   @relation(fields: [clientId], references: [id])
+  commandeClientId      Int?
+  commandeClient        CommandeClient? @relation(fields: [commandeClientId], references: [id])
+  bonCommandeClientId   Int?
+  bonCommandeClient     BonCommandeClient? @relation(fields: [bonCommandeClientId], references: [id])
+  factureClientId       Int?
+  factureClient         FactureClient? @relation("BonLivraisonToFacture", fields: [factureClientId], references: [id])
+  date                  DateTime @default(now())
+  statut                StatutDocument @default(BROUILLON)
+  montantHT             Float
+  montantTVA            Float
+  montantTTC            Float
+  deliveryFee           Float    @default(0)
+  deliveryTvaRate       Float    @default(7)
+  notes                 String?  @db.Text
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  lignes                LigneBonLivraisonClient[]
+  commandesBonLivraison CommandeClient[] @relation("CommandeBonLivraison")
+  bonCommandesBonLivraison BonCommandeClient[] @relation("BonCommandeToBonLivraison")
+}
+
+model LigneBonLivraisonClient {
+  id                    Int      @id @default(autoincrement())
+  bonLivraisonClientId  Int
+  bonLivraisonClient    BonLivraisonClient @relation(fields: [bonLivraisonClientId], references: [id], onDelete: Cascade)
+  productId             Int?
+  product               Product? @relation(fields: [productId], references: [id])
+  designation           String
+  quantite              Int
+  prixUnitaireHT        Float
+  tauxTVA               Float    @default(19)
+  montantHT             Float
+  montantTVA            Float
+  montantTTC            Float
+}
+
+model LigneCommandeClient {
+  id                Int      @id @default(autoincrement())
+  commandeClientId  Int
+  commandeClient    CommandeClient @relation(fields: [commandeClientId], references: [id], onDelete: Cascade)
+  productId         Int?
+  product           Product? @relation(fields: [productId], references: [id])
+  designation       String
+  quantite          Int
+  prixUnitaireHT    Float
+  tauxTVA           Float    @default(19)
+  montantHT         Float
+  montantTVA        Float
+  montantTTC        Float
+  serialNumberUsed  String?  // Serial number used for this line item (if product has serial number)
+}
+
+model AvoirClient {
+  id              Int      @id @default(autoincrement())
+  numero          String   @unique
+  clientId        Int
+  client          Client   @relation(fields: [clientId], references: [id])
+  factureClientId Int?
+  factureClient   FactureClient? @relation(fields: [factureClientId], references: [id])
+  date            DateTime @default(now())
+  statut          StatutDocument @default(BROUILLON)
+  montantHT       Float
+  montantTVA      Float
+  timbreFiscal    Float    @default(1.0)
+  montantTTC      Float
+  motif           String?  @db.Text
+  notes           String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  lignes          LigneAvoirClient[]
+  commandeReturns CommandeClient[] @relation("CommandeReturnAvoir")
+}
+
+model LigneAvoirClient {
+  id                Int      @id @default(autoincrement())
+  avoirClientId     Int
+  avoirClient       AvoirClient @relation(fields: [avoirClientId], references: [id], onDelete: Cascade)
+  productId         Int?
+  product           Product? @relation(fields: [productId], references: [id])
+  designation       String
+  quantite          Int
+  prixUnitaireHT    Float
+  tauxTVA           Float    @default(19)
+  montantHT         Float
+  montantTVA        Float
+  montantTTC        Float
+}
+
+model PrestashopSyncLog {
+  id         Int      @id @default(autoincrement())
+  resource   String
+  resourceId String?
+  prestashopId String?
+  action     String
+  status     String
+  payload    Json?
+  createdAt  DateTime @default(now())
+}
+
+// Single-row company settings for invoice/print templates
+model CompanySetting {
+  id                    Int      @id @default(1)
+  name                  String   @default("Ma Société")
+  logoUrl               String?
+  address               String?
+  matricule             String?  // Matricule fiscale
+  phone                 String?
+  email                 String?
+  website               String?
+  rib                   String?  // RIB bancaire
+  footerNote            String?  // Texte pied de page facture
+  invoicePrefix         String   @default("FC")
+  invoiceStartNumber    Int      @default(1)
+  devisPrefix           String   @default("DV")
+  devisStartNumber      Int      @default(1)
+  commandePrefix        String   @default("CC")
+  commandeStartNumber   Int      @default(1)
+  bonCommandePrefix     String   @default("BC")
+  bonCommandeStartNumber Int     @default(1)
+  bonLivraisonPrefix    String   @default("BL")
+  bonLivraisonStartNumber Int    @default(1)
+  avoirPrefix           String   @default("AC")
+  avoirStartNumber      Int      @default(1)
+  deliveryFeeDefault    Float    @default(8)
+  deliveryTvaRate       Float    @default(7)
+  updatedAt             DateTime @updatedAt
+}

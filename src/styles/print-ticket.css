@@ -1,0 +1,123 @@
+/* Screen view */
+.print-ticket-content {
+  max-width: 80mm;
+  margin: 0 auto;
+  padding: 10px;
+  font-family: 'Courier New', monospace;
+  font-size: 10pt;
+}
+
+@media print {
+  /* Format ticket 80mm */
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  * {
+    visibility: hidden;
+  }
+
+  .print-ticket-content,
+  .print-ticket-content * {
+    visibility: visible !important;
+  }
+
+  .print-ticket-content {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    margin: 0;
+    padding: 5mm;
+    font-family: 'Courier New', monospace;
+    font-size: 10pt;
+  }
+
+  /* Ticket styling */
+  .ticket-header {
+    text-align: center;
+    border-bottom: 2px dashed #000;
+    padding-bottom: 5mm;
+    margin-bottom: 5mm;
+  }
+
+  .ticket-header h1 {
+    margin: 0;
+    font-size: 14pt;
+    font-weight: bold;
+  }
+
+  .ticket-info {
+    margin-bottom: 3mm;
+    font-size: 9pt;
+  }
+
+  .ticket-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 3mm 0;
+  }
+
+  .ticket-table th {
+    border-bottom: 1px solid #000;
+    text-align: left;
+    padding: 2mm 0;
+    font-weight: bold;
+  }
+
+  .ticket-table td {
+    padding: 1mm 0;
+    border-bottom: 1px dotted #999;
+  }
+
+  .ticket-total {
+    border-top: 2px solid #000;
+    padding-top: 3mm;
+    margin-top: 3mm;
+  }
+
+  .ticket-total-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 1mm 0;
+    font-size: 11pt;
+  }
+
+  .ticket-total-line.grand-total {
+    font-size: 14pt;
+    font-weight: bold;
+    border-top: 2px double #000;
+    padding-top: 2mm;
+    margin-top: 2mm;
+  }
+
+  .ticket-payment {
+    margin-top: 5mm;
+    border-top: 2px dashed #000;
+    padding-top: 3mm;
+  }
+
+  .ticket-payment-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 1mm 0;
+    font-size: 11pt;
+  }
+
+  .ticket-footer {
+    text-align: center;
+    margin-top: 5mm;
+    padding-top: 5mm;
+    border-top: 2px dashed #000;
+    font-size: 9pt;
+  }
+
+  /* Hide buttons and non-essential elements */
+  button,
+  .MuiButton-root,
+  nav,
+  .no-print {
+    display: none !important;
+  }
+}
