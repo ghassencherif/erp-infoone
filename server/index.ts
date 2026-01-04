@@ -28,9 +28,14 @@ dotenv.config()
 const app = express()
 const PORT = process.env.PORT || 5000
 
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean)
+
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: allowedOrigins,
   credentials: true
 }))
 app.use(express.json())
