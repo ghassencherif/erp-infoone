@@ -1,5 +1,5 @@
 -- AlterTable
-ALTER TABLE `product` ADD COLUMN `invoiceableQuantity` INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE `Product` ADD COLUMN `invoiceableQuantity` INTEGER NOT NULL DEFAULT 0;
 
 -- CreateTable
 CREATE TABLE `InvoiceSubstitution` (

@@ -1,2 +1,2 @@
 -- AlterTable
-ALTER TABLE `product` ADD COLUMN `reference` VARCHAR(191) NULL;
+ALTER TABLE `Product` ADD COLUMN `reference` VARCHAR(191) NULL;

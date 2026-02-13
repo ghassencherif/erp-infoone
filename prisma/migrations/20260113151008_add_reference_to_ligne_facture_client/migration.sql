@@ -61,7 +61,7 @@ ALTER TABLE `lignefactureclient` ADD COLUMN `reference` VARCHAR(191) NULL,
 ALTER TABLE `lignefacturefournisseur` ADD COLUMN `quantiteRestante` INTEGER NOT NULL DEFAULT 0;
 
 -- AlterTable
-ALTER TABLE `product` ADD COLUMN `category` VARCHAR(191) NULL,
+ALTER TABLE `Product` ADD COLUMN `category` VARCHAR(191) NULL,
     ADD COLUMN `promoPrice` DOUBLE NULL,
     MODIFY `serialNumber` TEXT NULL;
 
