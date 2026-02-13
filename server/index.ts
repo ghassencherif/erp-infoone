@@ -28,10 +28,6 @@ dotenv.config()
 const app = express()
 const PORT = process.env.PORT || 5000
 
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000')
   .split(',')
   .map(origin => origin.trim())
