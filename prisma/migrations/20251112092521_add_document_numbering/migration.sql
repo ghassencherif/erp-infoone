@@ -1,5 +1,5 @@
 -- AlterTable
-ALTER TABLE `companysetting` ADD COLUMN `avoirPrefix` VARCHAR(191) NOT NULL DEFAULT 'AC',
+ALTER TABLE `CompanySetting` ADD COLUMN `avoirPrefix` VARCHAR(191) NOT NULL DEFAULT 'AC',
     ADD COLUMN `avoirStartNumber` INTEGER NOT NULL DEFAULT 1,
     ADD COLUMN `commandePrefix` VARCHAR(191) NOT NULL DEFAULT 'CC',
     ADD COLUMN `commandeStartNumber` INTEGER NOT NULL DEFAULT 1,
