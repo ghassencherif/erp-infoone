@@ -75,9 +75,25 @@ router.post('/', authenticate, async (req, res) => {
     const timbreFiscal = 1.0
     const montantTTC = montantHT + montantTVA + timbreFiscal
 
+    // Get settings for prefix
+    const settings = await prisma.companySetting.findUnique({ where: { id: 1 } });
+    const prefix = settings?.bonLivraisonPrefix || 'BL26';
+    const startNumber = settings?.bonLivraisonStartNumber || 1;
+
     // Generate numero
-    const count = await prisma.bonLivraisonClient.count()
-    const numero = `BL${String(count + 1).padStart(6, '0')}`
+    const last = await prisma.bonLivraisonClient.findFirst({
+      where: { numero: { startsWith: prefix } },
+      orderBy: { numero: 'desc' }
+    });
+    
+    let nextNum = startNumber;
+    if (last) {
+      const match = last.numero.match(new RegExp(`${prefix}(\\d+)`));
+      if (match) {
+        nextNum = parseInt(match[1]) + 1;
+      }
+    }
+    const numero = `${prefix}${String(nextNum).padStart(7, '0')}`
 
     const bon = await prisma.bonLivraisonClient.create({
       data: {
@@ -296,12 +312,15 @@ router.post('/from-commande/:id', authenticate, async (req, res) => {
     const count = await prisma.bonLivraisonClient.count()
     const numero = `BL${String(count + 1).padStart(6, '0')}`
 
+    // Set status: ANNULE if commande is RETOUR, otherwise TRAITE (Traité)
+    const statutBL = commande.statut === 'RETOUR' ? 'ANNULE' : 'TRAITE';
+
     const bon = await prisma.bonLivraisonClient.create({
       data: {
         numero,
         clientId: commande.clientId,
         date: new Date(),
-        statut: 'BROUILLON',
+        statut: statutBL,
         montantHT, montantTVA, montantTTC,
         deliveryFee: commande.deliveryFee,
         deliveryTvaRate: commande.deliveryTvaRate,

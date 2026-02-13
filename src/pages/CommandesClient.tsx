@@ -89,7 +89,7 @@ export default function CommandesClient() {
     statut: 'EN_ATTENTE_VALIDATION',
     source: 'OTHER',
     notes: '',
-    deliveryFree: true
+    deliveryFree: false
   });
   const [deliveryConfig, setDeliveryConfig] = useState({ fee: 8, tvaRate: 7 });
   const [lignes, setLignes] = useState<LigneCommande[]>([{ designation: '', quantite: 1, prixUnitaireHT: 0, tauxTVA: 19, serialNumberUsed: '' }]);
@@ -182,7 +182,7 @@ export default function CommandesClient() {
       });
     } else {
       setEditingCommande(null);
-      setFormData({ clientId: '' as number | '', date: new Date().toISOString().split('T')[0], dateEcheance: '', statut: 'EN_ATTENTE_VALIDATION', source: 'OTHER', notes: '', deliveryFree: true });
+      setFormData({ clientId: '' as number | '', date: new Date().toISOString().split('T')[0], dateEcheance: '', statut: 'EN_ATTENTE_VALIDATION', source: 'OTHER', notes: '', deliveryFree: false });
       setLignes([{ designation: '', quantite: 1, prixUnitaireHT: 0, tauxTVA: 19 }]);
     }
     setOpenDialog(true);
@@ -330,7 +330,7 @@ export default function CommandesClient() {
       const res = await api.post('/clients', {
         name: newClientForm.name,
         email: newClientForm.email || null,
-        phone: newClientForm.phone || null,
+        phone: (newClientForm.phone || '').replace(/\s+/g, '') || null,
         address: newClientForm.address || null,
         type: newClientForm.type,
         matriculeFiscale: newClientForm.type === 'PROFESSIONNEL' ? newClientForm.matriculeFiscale : null
@@ -687,27 +687,63 @@ export default function CommandesClient() {
             setSnackbar({ open: true, message: 'Erreur modification statut', severity: 'error' });
           }
         };
-        
+
+        const getStatusColor = (status: string) => {
+          const colors: Record<string, { bg: string; text: string; label: string }> = {
+            'EN_ATTENTE_VALIDATION': { bg: '#FFF3CD', text: '#856404', label: 'En attente validation' },
+            'ANNULE': { bg: '#F8D7DA', text: '#721C24', label: 'Annulé' },
+            'EN_COURS_PREPARATION': { bg: '#D1ECF1', text: '#0C5460', label: 'En cours préparation' },
+            'EN_COURS_LIVRAISON': { bg: '#CCE5FF', text: '#004085', label: 'En cours livraison' },
+            'DEPOT_TRANSPORTEUR': { bg: '#E2E3E5', text: '#383D41', label: 'Dépôt transporteur' },
+            'PAS_DE_REPONSE_1': { bg: '#F8D7DA', text: '#721C24', label: 'Pas de réponse 1' },
+            'PAS_DE_REPONSE_2': { bg: '#F8D7DA', text: '#721C24', label: 'Pas de réponse 2' },
+            'INJOIGNABLE_1': { bg: '#F8D7DA', text: '#721C24', label: 'Injoignable 1' },
+            'INJOIGNABLE_2': { bg: '#F8D7DA', text: '#721C24', label: 'Injoignable 2' },
+            'ANNULE_1': { bg: '#F8D7DA', text: '#721C24', label: 'Annulé 1' },
+            'ANNULE_2': { bg: '#F8D7DA', text: '#721C24', label: 'Annulé 2' },
+            'RETOUR': { bg: '#F8D7DA', text: '#721C24', label: 'Retour' },
+            'LIVRE': { bg: '#D4EDDA', text: '#155724', label: 'Livré' }
+          };
+          return colors[status] || { bg: '#E2E3E5', text: '#383D41', label: status };
+        };
+
+        const statusInfo = getStatusColor(params.value);
+
         return (
           <Select
             value={params.value}
             onChange={(e) => handleStatusChange(e.target.value as string)}
             size="small"
-            sx={{ minWidth: 180 }}
+            sx={{ 
+              minWidth: 180,
+              backgroundColor: statusInfo.bg,
+              color: statusInfo.text,
+              fontWeight: 600,
+              borderRadius: '4px',
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: statusInfo.text
+              },
+              '&:hover .MuiOutlinedInput-notchedOutline': {
+                borderColor: statusInfo.text
+              },
+              '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                borderColor: statusInfo.text
+              }
+            }}
           >
-            <MenuItem value="EN_ATTENTE_VALIDATION">En attente validation</MenuItem>
-            <MenuItem value="ANNULE">Annulé</MenuItem>
-            <MenuItem value="EN_COURS_PREPARATION">En cours préparation</MenuItem>
-            <MenuItem value="EN_COURS_LIVRAISON">En cours livraison</MenuItem>
-              <MenuItem value="DEPOT_TRANSPORTEUR">Dépôt transporteur</MenuItem>
-              <MenuItem value="PAS_DE_REPONSE_1">Pas de réponse 1</MenuItem>
-              <MenuItem value="PAS_DE_REPONSE_2">Pas de réponse 2</MenuItem>
-              <MenuItem value="INJOIGNABLE_1">Injoignable 1</MenuItem>
-              <MenuItem value="INJOIGNABLE_2">Injoignable 2</MenuItem>
-              <MenuItem value="ANNULE_1">Annulé 1</MenuItem>
-              <MenuItem value="ANNULE_2">Annulé 2</MenuItem>
-              <MenuItem value="RETOUR">Retour</MenuItem>
-            <MenuItem value="LIVRE">Livré</MenuItem>
+            <MenuItem value="EN_ATTENTE_VALIDATION" sx={{ backgroundColor: '#FFF3CD' }}>En attente validation</MenuItem>
+            <MenuItem value="ANNULE" sx={{ backgroundColor: '#F8D7DA' }}>Annulé</MenuItem>
+            <MenuItem value="EN_COURS_PREPARATION" sx={{ backgroundColor: '#D1ECF1' }}>En cours préparation</MenuItem>
+            <MenuItem value="EN_COURS_LIVRAISON" sx={{ backgroundColor: '#CCE5FF' }}>En cours livraison</MenuItem>
+            <MenuItem value="DEPOT_TRANSPORTEUR" sx={{ backgroundColor: '#E2E3E5' }}>Dépôt transporteur</MenuItem>
+            <MenuItem value="PAS_DE_REPONSE_1" sx={{ backgroundColor: '#F8D7DA' }}>Pas de réponse 1</MenuItem>
+            <MenuItem value="PAS_DE_REPONSE_2" sx={{ backgroundColor: '#F8D7DA' }}>Pas de réponse 2</MenuItem>
+            <MenuItem value="INJOIGNABLE_1" sx={{ backgroundColor: '#F8D7DA' }}>Injoignable 1</MenuItem>
+            <MenuItem value="INJOIGNABLE_2" sx={{ backgroundColor: '#F8D7DA' }}>Injoignable 2</MenuItem>
+            <MenuItem value="ANNULE_1" sx={{ backgroundColor: '#F8D7DA' }}>Annulé 1</MenuItem>
+            <MenuItem value="ANNULE_2" sx={{ backgroundColor: '#F8D7DA' }}>Annulé 2</MenuItem>
+            <MenuItem value="RETOUR" sx={{ backgroundColor: '#F8D7DA' }}>Retour</MenuItem>
+            <MenuItem value="LIVRE" sx={{ backgroundColor: '#D4EDDA' }}>Livré</MenuItem>
           </Select>
         );
       }
@@ -1214,7 +1250,7 @@ export default function CommandesClient() {
                 )}
               </Box>
               <Typography variant="caption" sx={{ mt: 1, display: 'block', color: 'text.secondary' }}>
-                Note: Les frais de livraison par défaut incluent la TVA {deliveryConfig.tvaRate}%. Cochez « Livraison gratuite » pour les retirer.
+                Note: Par défaut, les frais de livraison ({deliveryConfig.fee} TND TTC, TVA {deliveryConfig.tvaRate}%) sont ajoutés. Cochez « Livraison gratuite » pour les retirer.
               </Typography>
             </Box>
 
@@ -1699,7 +1735,7 @@ export default function CommandesClient() {
           Détails Bon de Livraison
           <Button variant="contained" startIcon={<PrintIcon />} onClick={() => {
             if (selectedBL) {
-              window.open(`http://localhost:3000/print/bon-livraison/${selectedBL.id}`, '_blank');
+              window.open(`/print/bon-livraison/${selectedBL.id}`, '_blank');
             }
           }}>
             Imprimer
@@ -1742,7 +1778,7 @@ export default function CommandesClient() {
           Détails Facture
           <Button variant="contained" startIcon={<PrintIcon />} onClick={() => {
             if (selectedFactureFromChip) {
-              window.open(`http://localhost:3000/print/facture/${selectedFactureFromChip.id}`, '_blank');
+              window.open(`/print/facture/${selectedFactureFromChip.id}`, '_blank');
             }
           }}>
             Imprimer

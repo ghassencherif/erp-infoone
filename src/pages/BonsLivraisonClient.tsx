@@ -347,9 +347,6 @@ export default function BonsLivraisonClient() {
             <Typography variant="subtitle2" sx={{ opacity: 0.9 }}>Suivi de vos livraisons aux clients</Typography>
           </Box>
         </Box>
-        <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={() => handleOpenDialog()} sx={{ bgcolor: 'white', color: '#201B18', '&:hover': { bgcolor: '#f0f0f0' } }}>
-          Nouveau Bon
-        </Button>
       </Paper>
 
       {/* Stats Cards */}
@@ -597,7 +594,7 @@ export default function BonsLivraisonClient() {
           Détails Bon de Livraison
           <Button variant="contained" startIcon={<PrintIcon />} onClick={() => {
             if (selectedBon) {
-              window.open(`http://localhost:3000/print/bon-livraison/${selectedBon.id}`, '_blank');
+              window.open(`/print/bon-livraison/${selectedBon.id}`, '_blank');
             }
           }}>
             Imprimer

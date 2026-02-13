@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import DashboardLayout from '../components/layouts/DashboardLayout'
 import { DataGrid, GridColDef } from '@mui/x-data-grid'
@@ -21,7 +21,11 @@ import {
   Paper,
   Card,
   Skeleton,
-  Grid
+  Grid,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
@@ -40,11 +44,13 @@ const Products: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [error, setError] = useState('')
   const [searchText, setSearchText] = useState('')
   const [openDialog, setOpenDialog] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' })
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -93,6 +99,26 @@ const Products: React.FC = () => {
       showSnackbar(err.response?.data?.error || 'Sync failed', 'error')
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const handleImportExcel = async (file: File) => {
+    setImporting(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      await api.post('/products/import-excel', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      await fetchProducts()
+      showSnackbar('Import terminé', 'success')
+    } catch (err: any) {
+      showSnackbar(err.response?.data?.error || 'Import échoué', 'error')
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
     }
   }
 
@@ -271,7 +297,7 @@ const Products: React.FC = () => {
       renderCell: (params) => (
         <>
           <Tooltip title="Voir détails">
-            <IconButton onClick={() => navigate(`/products/${params.row.id}`)} size="small" color="info">
+            <IconButton onClick={() => window.open(`/products/${params.row.id}`, '_blank')} size="small" color="info">
               <VisibilityIcon />
             </IconButton>
           </Tooltip>
@@ -350,6 +376,27 @@ const Products: React.FC = () => {
             <Typography variant="body2" sx={{ opacity: 0.8 }}>Gérez votre catalogue de produits, prix et stocks</Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1 }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) {
+                  handleImportExcel(file)
+                }
+              }}
+            />
+            <Button
+              variant="outlined"
+              startIcon={<CloudUploadIcon />}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+              sx={{ color: 'white', borderColor: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}
+            >
+              {importing ? 'Import...' : 'Importer Excel'}
+            </Button>
             <Button
               variant="outlined"
               startIcon={<CloudUploadIcon />}
@@ -498,6 +545,7 @@ const Products: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
                 helperText="SKU PrestaShop (unique)"
                 variant="outlined"
+                disabled={formData.isService}
               />
             </Grid>
 
@@ -511,7 +559,7 @@ const Products: React.FC = () => {
               />
             </Grid>
 
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12}>
               <TextField
                 label="Numéro de Série"
                 fullWidth
@@ -519,6 +567,7 @@ const Products: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
                 helperText="Séparés par des virgules"
                 variant="outlined"
+                disabled={formData.isService}
               />
             </Grid>
 
@@ -555,6 +604,7 @@ const Products: React.FC = () => {
                 inputProps={{ min: 0, step: 0.001 }}
                 helperText="Calculé automatiquement"
                 variant="outlined"
+                disabled
               />
             </Grid>
 
@@ -591,6 +641,7 @@ const Products: React.FC = () => {
                 inputProps={{ min: 0, step: 0.001 }}
                 helperText="Calculé automatiquement"
                 variant="outlined"
+                disabled
               />
             </Grid>
 
@@ -608,6 +659,7 @@ const Products: React.FC = () => {
                 }}
                 inputProps={{ min: 0, step: 0.001 }}
                 variant="outlined"
+                disabled={formData.isService}
               />
             </Grid>
 
@@ -625,43 +677,56 @@ const Products: React.FC = () => {
                 }}
                 inputProps={{ min: 0, step: 0.001 }}
                 variant="outlined"
+                disabled
               />
             </Grid>
 
             <Grid item xs={12} sm={6}>
-              <TextField
-                label="TVA (%)"
-                type="number"
-                fullWidth
-                value={formData.tvaRate}
-                onChange={(e) => {
-                  const newTvaRate = e.target.value
-                  const tvaRate = parseFloat(newTvaRate) || 0
-                  let updates: any = { tvaRate: newTvaRate }
-                  if (formData.priceTTC) {
-                    const ttc = parseFloat(formData.priceTTC)
-                    const ht = (ttc / (1 + tvaRate / 100)).toFixed(3)
-                    updates.price = ht
-                  } else if (formData.price) {
-                    const ht = parseFloat(formData.price)
-                    const ttc = (ht * (1 + tvaRate / 100)).toFixed(3)
-                    updates.priceTTC = ttc
-                  }
-                  if (formData.costTTC) {
-                    const ttc = parseFloat(formData.costTTC)
-                    const ht = (ttc / (1 + tvaRate / 100)).toFixed(3)
-                    updates.cost = ht
-                  } else if (formData.cost) {
-                    const ht = parseFloat(formData.cost)
-                    const ttc = (ht * (1 + tvaRate / 100)).toFixed(3)
-                    updates.costTTC = ttc
-                  }
-                  setFormData({ ...formData, ...updates })
-                }}
-                inputProps={{ min: 0, step: 1 }}
-                helperText="Ex: 0, 7, 13, 19"
-                variant="outlined"
-              />
+              <FormControl fullWidth variant="outlined">
+                <InputLabel>TVA (%)</InputLabel>
+                <Select
+                  value={formData.tvaRate}
+                  onChange={(e) => {
+                    const newTvaRate = e.target.value
+                    const tvaRate = parseFloat(newTvaRate) || 0
+                    let updates: any = { tvaRate: newTvaRate }
+                    if (formData.priceTTC) {
+                      const ttc = parseFloat(formData.priceTTC)
+                      const ht = (ttc / (1 + tvaRate / 100)).toFixed(3)
+                      updates.price = ht
+                    } else if (formData.price) {
+                      const ht = parseFloat(formData.price)
+                      const ttc = (ht * (1 + tvaRate / 100)).toFixed(3)
+                      updates.priceTTC = ttc
+                    }
+                    if (formData.costTTC) {
+                      const ttc = parseFloat(formData.costTTC)
+                      const ht = (ttc / (1 + tvaRate / 100)).toFixed(3)
+                      updates.cost = ht
+                    } else if (formData.cost) {
+                      const ht = parseFloat(formData.cost)
+                      const ttc = (ht * (1 + tvaRate / 100)).toFixed(3)
+                      updates.costTTC = ttc
+                    }
+                    if (formData.promoPriceTTC) {
+                      const ttc = parseFloat(formData.promoPriceTTC)
+                      const ht = (ttc / (1 + tvaRate / 100)).toFixed(3)
+                      updates.promoPrice = ht
+                    } else if (formData.promoPrice) {
+                      const ht = parseFloat(formData.promoPrice)
+                      const ttc = (ht * (1 + tvaRate / 100)).toFixed(3)
+                      updates.promoPriceTTC = ttc
+                    }
+                    setFormData({ ...formData, ...updates })
+                  }}
+                  label="TVA (%)"
+                >
+                  <MenuItem value="0">0%</MenuItem>
+                  <MenuItem value="7">7%</MenuItem>
+                  <MenuItem value="13">13%</MenuItem>
+                  <MenuItem value="19">19%</MenuItem>
+                </Select>
+              </FormControl>
             </Grid>
 
             <Grid item xs={12} sm={6}>
@@ -673,6 +738,7 @@ const Products: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
                 inputProps={{ min: 0, step: 1 }}
                 variant="outlined"
+                disabled={formData.isService}
               />
             </Grid>
 
@@ -685,6 +751,7 @@ const Products: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, invoiceableQuantity: e.target.value })}
                 inputProps={{ min: 0, step: 1 }}
                 variant="outlined"
+                disabled={formData.isService}
               />
             </Grid>
 
@@ -697,6 +764,7 @@ const Products: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, lowStockThreshold: e.target.value })}
                 inputProps={{ min: 0, step: 1 }}
                 variant="outlined"
+                disabled={formData.isService}
               />
             </Grid>
           </Grid>

@@ -124,9 +124,25 @@ router.post('/', authenticate, async (req, res) => {
     const timbreFiscal = 1.0
     const montantTTC = montantHT + montantTVA + timbreFiscal
 
+    // Get settings for prefix
+    const settings = await prisma.companySetting.findUnique({ where: { id: 1 } });
+    const prefix = settings?.bonCommandePrefix || 'BC26';
+    const startNumber = settings?.bonCommandeStartNumber || 1;
+
     // Generate numero
-    const count = await prisma.bonCommandeClient.count()
-    const numero = `BC${String(count + 1).padStart(6, '0')}`
+    const last = await prisma.bonCommandeClient.findFirst({
+      where: { numero: { startsWith: prefix } },
+      orderBy: { numero: 'desc' }
+    });
+    
+    let nextNum = startNumber;
+    if (last) {
+      const match = last.numero.match(new RegExp(`${prefix}(\\d+)`));
+      if (match) {
+        nextNum = parseInt(match[1]) + 1;
+      }
+    }
+    const numero = `${prefix}${String(nextNum).padStart(7, '0')}`
 
     const bon = await prisma.bonCommandeClient.create({
       data: {
@@ -155,6 +171,12 @@ router.post('/', authenticate, async (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   try {
     const { clientId, date, dateEcheance, statut, notes, lignes } = req.body
+
+    // Get the existing bon to check if client changed
+    const existingBon = await prisma.bonCommandeClient.findUnique({
+      where: { id: Number(req.params.id) },
+      include: { commandes: true }
+    })
 
     // Calculate totals
     let montantHT = 0, montantTVA = 0
@@ -188,6 +210,16 @@ router.put('/:id', authenticate, async (req, res) => {
       },
       include: { client: true, lignes: true }
     })
+
+    // If client changed, update all linked Commandes Client
+    if (existingBon && existingBon.clientId !== clientId && existingBon.commandes && existingBon.commandes.length > 0) {
+      console.log(`Updating client for ${existingBon.commandes.length} linked commande(s)`)
+      await prisma.commandeClient.updateMany({
+        where: { bonCommandeClientId: Number(req.params.id) },
+        data: { clientId }
+      })
+    }
+
     res.json(bon)
   } catch (e) {
     console.error('Error updating bon commande client', e)
@@ -275,13 +307,18 @@ router.post('/:id/convert-to-facture', authenticate, async (req, res) => {
     const insufficientProducts: any[] = [];
     for (const ligne of bon.lignes) {
       if (ligne.productId && ligne.product) {
-        if (ligne.product.invoiceableQuantity < ligne.quantite) {
+        const available = typeof ligne.product.invoiceableQuantity === 'number'
+          ? ligne.product.invoiceableQuantity
+          : 0
+
+        if (available < ligne.quantite) {
           insufficientProducts.push({
             name: ligne.product.name,
             reference: ligne.product.reference,
+            productId: ligne.product.id,
             requested: ligne.quantite,
-            available: ligne.product.invoiceableQuantity
-          });
+            available,
+          })
         }
       }
     }

@@ -31,21 +31,25 @@ interface ProductCardProps {
   matchedSerial?: string
 }
 
-const ProductCard = React.memo(({ product: p, onAddToCart, matchedSerial }: ProductCardProps) => (
+const ProductCard = React.memo(({ product: p, onAddToCart, matchedSerial }: ProductCardProps) => {
+  const isAvailable = p.isService || p.stockAvailables[0]?.quantity > 0
+  return (
   <Box key={p.id}>
     <Card 
       elevation={3}
       onClick={() => onAddToCart(p, matchedSerial)}
       sx={{
-        cursor: p.stockAvailables[0]?.quantity > 0 ? 'pointer' : 'not-allowed',
-        opacity: p.stockAvailables[0]?.quantity > 0 ? 1 : 0.5,
+        cursor: isAvailable ? 'pointer' : 'not-allowed',
+        opacity: isAvailable ? 1 : 0.5,
         transition: 'all 0.2s',
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
         bgcolor: 'white',
         borderRadius: 2,
-        '&:hover': p.stockAvailables[0]?.quantity > 0 ? { 
+        border: p.isService ? 2 : 'none',
+        borderColor: p.isService ? 'info.main' : 'transparent',
+        '&:hover': isAvailable ? { 
           transform: 'translateY(-6px)',
           boxShadow: 8,
           bgcolor: 'primary.main',
@@ -57,7 +61,7 @@ const ProductCard = React.memo(({ product: p, onAddToCart, matchedSerial }: Prod
             borderColor: 'white'
           }
         } : {},
-        '&:active': p.stockAvailables[0]?.quantity > 0 ? {
+        '&:active': isAvailable ? {
           transform: 'translateY(-3px)'
         } : {}
       }}
@@ -68,7 +72,7 @@ const ProductCard = React.memo(({ product: p, onAddToCart, matchedSerial }: Prod
         </Typography>
         <Box sx={{ flex: 1 }} />
         <Box sx={{ mt: 2 }}>
-          <Typography 
+        <Typography 
             className="product-price"
             variant="h5" 
             fontWeight="bold" 
@@ -79,14 +83,14 @@ const ProductCard = React.memo(({ product: p, onAddToCart, matchedSerial }: Prod
           </Typography>
           <Chip 
             className="product-stock"
-            label={`Stock: ${p.stockAvailables[0]?.quantity ?? 0}`} 
+            label={p.isService ? 'Service' : `Stock: ${p.stockAvailables[0]?.quantity ?? 0}`} 
             size="small" 
             sx={{ 
               fontWeight: 'bold',
-              bgcolor: p.stockAvailables[0]?.quantity > 0 ? 'success.light' : 'error.light',
-              color: p.stockAvailables[0]?.quantity > 0 ? 'success.dark' : 'error.dark',
+              bgcolor: p.isService ? 'info.light' : (p.stockAvailables[0]?.quantity > 0 ? 'success.light' : 'error.light'),
+              color: p.isService ? 'info.dark' : (p.stockAvailables[0]?.quantity > 0 ? 'success.dark' : 'error.dark'),
               border: 1,
-              borderColor: p.stockAvailables[0]?.quantity > 0 ? 'success.main' : 'error.main'
+              borderColor: p.isService ? 'info.main' : (p.stockAvailables[0]?.quantity > 0 ? 'success.main' : 'error.main')
             }}
           />
         </Box>
@@ -98,7 +102,8 @@ const ProductCard = React.memo(({ product: p, onAddToCart, matchedSerial }: Prod
       </Box>
     </Card>
   </Box>
-))
+  )
+})
 
 const PointOfSale: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([])
@@ -126,47 +131,76 @@ const PointOfSale: React.FC = () => {
   }
 
   const addProductToCart = useCallback((p: Product, matchedSerial?: string) => {
-    // Vérifier le stock avant d'ajouter
-    const stock = p.stockAvailables[0]?.quantity ?? 0
-    if (stock <= 0) {
-      setSnackbar({ open: true, message: 'Produit en rupture de stock', severity: 'error' })
-      return
-    }
-    
-    setCart(prev => {
-      const idx = prev.findIndex(l => l.productId === p.id && (!matchedSerial || l.serialNumber === matchedSerial))
-      if (idx >= 0) {
-        const currentQty = prev[idx].quantity
-        // Check if adding one more would exceed stock
-        if (currentQty >= stock) {
-          setSnackbar({ open: true, message: `Stock insuffisant (max: ${stock})`, severity: 'error' })
-          return prev
+    // Check stock for regular products
+    if (!p.isService) {
+      const stock = p.stockAvailables[0]?.quantity ?? 0
+      if (stock <= 0) {
+        setSnackbar({ open: true, message: 'Produit en rupture de stock', severity: 'error' })
+        return
+      }
+      
+      setCart(prev => {
+        const idx = prev.findIndex(l => l.productId === p.id && (!matchedSerial || l.serialNumber === matchedSerial))
+        if (idx >= 0) {
+          const currentQty = prev[idx].quantity
+          // Check if adding one more would exceed stock
+          if (currentQty >= stock) {
+            setSnackbar({ open: true, message: `Stock insuffisant (max: ${stock})`, severity: 'error' })
+            return prev
+          }
+          const copy = [...prev]
+          copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + 1 }
+          return copy
         }
-        const copy = [...prev]
-        copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + 1 }
-        return copy
-      }
-      const tvaRate = (typeof p.tvaRate === 'number' ? p.tvaRate : 19)
-      const prixHT = p.price / (1 + tvaRate / 100) // price stored TTC
-      
-      // Only show serial number if it was scanned/typed (matchedSerial provided)
-      let designation = p.name
-      
-      if (matchedSerial) {
-        // Serial was scanned/typed - show it
-        designation += `\nSN: ${matchedSerial}`
-      }
-      
-      return [...prev, { 
-        productId: p.id, 
-        designation, 
-        quantity: 1, 
-        prixUnitaireHT: prixHT, 
-        tauxTVA: tvaRate,
-        costPrice: p.cost || 0,
-        serialNumber: matchedSerial || undefined
-      }]
-    })
+        const tvaRate = (typeof p.tvaRate === 'number' ? p.tvaRate : 19)
+        const prixHT = p.price / (1 + tvaRate / 100) // price stored TTC
+        
+        // Only show serial number if it was scanned/typed (matchedSerial provided)
+        let designation = p.name
+        
+        if (matchedSerial) {
+          // Serial was scanned/typed - show it
+          designation += `\nSN: ${matchedSerial}`
+        }
+        
+        return [...prev, { 
+          productId: p.id, 
+          designation, 
+          quantity: 1, 
+          prixUnitaireHT: prixHT, 
+          tauxTVA: tvaRate,
+          costPrice: p.cost || 0,
+          serialNumber: matchedSerial || undefined
+        }]
+      })
+    } else {
+      // For services, add directly without stock check
+      setCart(prev => {
+        const idx = prev.findIndex(l => l.productId === p.id && (!matchedSerial || l.serialNumber === matchedSerial))
+        if (idx >= 0) {
+          const copy = [...prev]
+          copy[idx] = { ...copy[idx], quantity: copy[idx].quantity + 1 }
+          return copy
+        }
+        const tvaRate = (typeof p.tvaRate === 'number' ? p.tvaRate : 19)
+        const prixHT = p.price / (1 + tvaRate / 100) // price stored TTC
+        
+        let designation = p.name
+        if (matchedSerial) {
+          designation += `\nSN: ${matchedSerial}`
+        }
+        
+        return [...prev, { 
+          productId: p.id, 
+          designation, 
+          quantity: 1, 
+          prixUnitaireHT: prixHT, 
+          tauxTVA: tvaRate,
+          costPrice: p.cost || 0,
+          serialNumber: matchedSerial || undefined
+        }]
+      })
+    }
   }, [])
 
   const removeLine = (index: number) => {
@@ -566,16 +600,18 @@ const PointOfSale: React.FC = () => {
                           value={l.quantity}
                           onChange={(e) => {
                             const q = Math.max(1, parseInt(e.target.value || '1'))
-                            // Check stock
+                            // Check stock (skip for services)
                             const product = products.find(p => p.id === l.productId)
-                            const availableStock = product?.stockAvailables[0]?.quantity ?? 0
-                            if (q > availableStock) {
-                              setSnackbar({ 
-                                open: true, 
-                                message: `Stock insuffisant (disponible: ${availableStock})`, 
-                                severity: 'error' 
-                              })
-                              return
+                            if (product && !product.isService) {
+                              const availableStock = product?.stockAvailables[0]?.quantity ?? 0
+                              if (q > availableStock) {
+                                setSnackbar({ 
+                                  open: true, 
+                                  message: `Stock insuffisant (disponible: ${availableStock})`, 
+                                  severity: 'error' 
+                                })
+                                return
+                              }
                             }
                             setCart(prev => prev.map((x, idx) => idx === i ? { ...x, quantity: q } : x))
                           }}

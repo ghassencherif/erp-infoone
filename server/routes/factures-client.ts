@@ -100,6 +100,11 @@ router.post('/', authenticate, async (req, res) => {
             return res.status(400).json({ error: `Produit ${ligne.productId} introuvable` });
           }
           
+          // Skip stock validation for services
+          if (product.isService) {
+            continue;
+          }
+          
           const currentStock = product.stockAvailables.reduce((sum, s) => sum + s.quantity, 0);
           
           // Check invoiceable quantity first (prioritize invoiceable over regular stock)
@@ -193,25 +198,30 @@ router.post('/', authenticate, async (req, res) => {
 
     const montantTTC = montantHT + montantTVA + timbreFiscal;
     
-    // Generate unique invoice number for normal client invoices (FC prefix)
-    const pad = (n: number) => String(n).padStart(6, '0');
-    const getNextFcNumber = async () => {
-      const lastFc = await prisma.factureClient.findFirst({
-        where: { numero: { startsWith: 'FC' } },
+    // Get settings for prefix
+    const settings = await prisma.companySetting.findUnique({ where: { id: 1 } });
+    const prefix = settings?.invoicePrefix || 'FA26';
+    const startNumber = settings?.invoiceStartNumber || 1;
+    
+    // Generate unique invoice number
+    const pad = (n: number) => String(n).padStart(7, '0');
+    const getNextNumber = async () => {
+      const last = await prisma.factureClient.findFirst({
+        where: { numero: { startsWith: prefix } },
         orderBy: { numero: 'desc' }
       });
-      if (!lastFc || !lastFc.numero) return 1;
-      const match = lastFc.numero.match(/FC(\d+)/);
-      return match ? parseInt(match[1]) + 1 : 1;
+      if (!last || !last.numero) return startNumber;
+      const match = last.numero.match(new RegExp(`${prefix}(\\d+)`));
+      return match ? parseInt(match[1]) + 1 : startNumber;
     };
 
     let facture = null as any;
     {
       let attempt = 0;
-      let nextNumber = await getNextFcNumber();
+      let nextNumber = await getNextNumber();
       const maxAttempts = 5;
       while (attempt < maxAttempts) {
-        const numero = `FC${pad(nextNumber)}`;
+        const numero = `${prefix}${pad(nextNumber)}`;
         try {
           facture = await prisma.factureClient.create({
             data: {
@@ -751,6 +761,9 @@ router.post('/from-commande/:id', authenticate, async (req, res) => {
     const remise = commande.remise || 0
     const montantTTC = commande.montantHT + commande.montantTVA + timbreFiscal
     
+    // Set status: ANNULE if commande is RETOUR, otherwise PAYE
+    const statutFacture = commande.statut === 'RETOUR' ? 'ANNULE' : 'PAYE';
+    
     while (attempt < maxAttempts) {
       const numero = `FC${pad(nextNumber)}`
       try {
@@ -759,7 +772,7 @@ router.post('/from-commande/:id', authenticate, async (req, res) => {
             numero,
             clientId: commande.clientId,
             date: new Date(),
-            statut: 'PAYE',
+            statut: statutFacture,
             montantHT: commande.montantHT,
             montantTVA: commande.montantTVA,
             timbreFiscal: timbreFiscal,

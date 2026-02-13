@@ -66,10 +66,25 @@ export default function SettingsInvoice() {
               commandePrefix, commandeStartNumber, avoirPrefix, avoirStartNumber,
               deliveryFeeDefault, deliveryTvaRate } = settings;
       const res = await api.put('/settings/company', { 
-        name, logoUrl, address, matricule, phone, email, website, rib, footerNote,
-        invoicePrefix, invoiceStartNumber, devisPrefix, devisStartNumber,
-        commandePrefix, commandeStartNumber, avoirPrefix, avoirStartNumber,
-        deliveryFeeDefault, deliveryTvaRate
+        name, 
+        logoUrl, 
+        address, 
+        matricule, 
+        phone: phone?.replace(/\s+/g, '') || '', 
+        email, 
+        website, 
+        rib, 
+        footerNote,
+        invoicePrefix, 
+        invoiceStartNumber, 
+        devisPrefix, 
+        devisStartNumber,
+        commandePrefix, 
+        commandeStartNumber, 
+        avoirPrefix, 
+        avoirStartNumber,
+        deliveryFeeDefault, 
+        deliveryTvaRate
       });
       setSettings(res.data);
       setSnackbar({ open: true, message: 'Paramètres sauvegardés', severity: 'success' });

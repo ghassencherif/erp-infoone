@@ -86,9 +86,9 @@ const CommandesCaisse: React.FC = () => {
         api.get('/commandes-client'),
         api.get('/clients')
       ])
-      // Filter POS orders: client is DIVERS or printTicket field exists
+      // Filter POS orders: only orders where printTicket is true
       const list = (commandesRes.data || []).filter((c: Commande) => 
-        c.client?.name === 'DIVERS' || c.printTicket !== undefined
+        c.printTicket === true
       )
       setRows(list)
       setClients(clientsRes.data)

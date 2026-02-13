@@ -124,66 +124,9 @@ router.post('/', authenticate, async (req, res) => {
       }
     })
 
-    // Update stock and weighted average cost for each product
-    for (const ligne of lignes) {
-      if (ligne.productId) {
-        // Get current product and stock
-        const product = await prisma.product.findUnique({
-          where: { id: ligne.productId },
-          include: { stockAvailables: true }
-        })
-
-        if (product) {
-          const currentStock = product.stockAvailables.reduce((sum, s) => sum + s.quantity, 0)
-          const currentCost = product.cost || 0
-          const newQuantity = ligne.quantite
-          const newCost = ligne.prixUnitaire
-
-          // Calculate weighted average cost (Coût Moyen Pondéré - CMP)
-          // Formula: New Average Cost = (Old Stock × Old Cost + New Stock × New Cost) / (Old Stock + New Stock)
-          const newAverageCost = currentStock > 0
-            ? ((currentStock * currentCost) + (newQuantity * newCost)) / (currentStock + newQuantity)
-            : newCost
-
-          console.log(`Updating product ${ligne.productId}:`, {
-            oldStock: currentStock,
-            oldCost: currentCost,
-            newStock: newQuantity,
-            newCost: newCost,
-            calculation: `((${currentStock} * ${currentCost}) + (${newQuantity} * ${newCost})) / (${currentStock} + ${newQuantity})`,
-            numerator: (currentStock * currentCost) + (newQuantity * newCost),
-            denominator: currentStock + newQuantity,
-            newAverageCost: newAverageCost
-          })
-
-          // Update product cost and invoiceableQuantity
-          await prisma.product.update({
-            where: { id: ligne.productId },
-            data: { 
-              cost: newAverageCost,
-              invoiceableQuantity: product.invoiceableQuantity + newQuantity
-            }
-          })
-
-          // Update stock - either update existing or create new
-          if (product.stockAvailables.length > 0) {
-            await prisma.stockAvailable.update({
-              where: { id: product.stockAvailables[0].id },
-              data: { quantity: currentStock + newQuantity }
-            })
-          } else {
-            await prisma.stockAvailable.create({
-              data: {
-                productId: ligne.productId,
-                quantity: newQuantity
-              }
-            })
-          }
-        }
-      }
-    }
-
+    // Note: Stock is NOT updated on creation. It will be added only when status changes to ACCEPTE or PAYE
     console.log('Facture created successfully:', facture.id)
+    console.log('⚠️  Stock will be updated only when status changes to ACCEPTE or PAYE')
     res.status(201).json(facture)
   } catch (error: any) {
     console.error('Error creating facture:', error)
@@ -249,8 +192,27 @@ router.put('/:id', authenticate, async (req, res) => {
 router.patch('/:id/statut', authenticate, async (req, res) => {
   try {
     const { statut } = req.body
+    const id = parseInt(req.params.id)
+    
+    // Get current facture to check previous status
+    const currentFacture = await prisma.factureFournisseur.findUnique({
+      where: { id },
+      include: {
+        lignes: {
+          include: {
+            product: true
+          }
+        }
+      }
+    })
+    
+    if (!currentFacture) {
+      return res.status(404).json({ error: 'Facture non trouvée' })
+    }
+    
+    // Update status
     const facture = await prisma.factureFournisseur.update({
-      where: { id: parseInt(req.params.id) },
+      where: { id },
       data: { statut },
       include: {
         fournisseur: true,
@@ -261,6 +223,120 @@ router.patch('/:id/statut', authenticate, async (req, res) => {
         }
       }
     })
+    
+    // Add to stock only when status changes to ACCEPTE or PAYE (and was not previously in these statuses)
+    const previousStatus = currentFacture.statut
+    if ((statut === 'ACCEPTE' || statut === 'PAYE') && 
+        !['ACCEPTE', 'PAYE'].includes(previousStatus)) {
+      
+      console.log(`📦 Adding stock for invoice ${id} (status: ${previousStatus} → ${statut})`)
+      
+      // Add stock for each ligne
+      for (const ligne of facture.lignes) {
+        if (ligne.productId) {
+          // Get current product for weighted average cost calculation
+          const product = await prisma.product.findUnique({
+            where: { id: ligne.productId },
+            include: { stockAvailables: true }
+          })
+
+          if (product) {
+            const currentStock = product.stockAvailables.reduce((sum, s) => sum + s.quantity, 0)
+            const currentCost = product.cost || 0
+            const newQuantity = ligne.quantite
+            const newCost = ligne.prixUnitaire
+
+            // Calculate weighted average cost (Coût Moyen Pondéré - CMP)
+            // Formula: New Average Cost = (Old Stock × Old Cost + New Stock × New Cost) / (Old Stock + New Stock)
+            const newAverageCost = currentStock > 0
+              ? ((currentStock * currentCost) + (newQuantity * newCost)) / (currentStock + newQuantity)
+              : newCost
+
+            console.log(`  Product ${ligne.productId}: currentStock=${currentStock}, cost ${currentCost.toFixed(3)} → ${newAverageCost.toFixed(3)}`)
+
+            // Update product cost
+            await prisma.product.update({
+              where: { id: ligne.productId },
+              data: { 
+                cost: newAverageCost,
+                invoiceableQuantity: product.invoiceableQuantity + newQuantity
+              }
+            })
+
+            // Find or create stock record
+            let stock = await prisma.stockAvailable.findFirst({
+              where: { productId: ligne.productId }
+            })
+            
+            if (stock) {
+              // Update existing stock
+              await prisma.stockAvailable.update({
+                where: { id: stock.id },
+                data: {
+                  quantity: stock.quantity + newQuantity
+                }
+              })
+            } else {
+              // Create new stock record
+              await prisma.stockAvailable.create({
+                data: {
+                  productId: ligne.productId,
+                  quantity: newQuantity
+                }
+              })
+            }
+          }
+        }
+      }
+      console.log(`✅ Stock updated successfully for invoice ${id}`)
+    }
+    
+    // Reduce stock when status changes to ANNULE (only if previously ACCEPTE or PAYE)
+    if (statut === 'ANNULE' && ['ACCEPTE', 'PAYE'].includes(previousStatus)) {
+      console.log(`🔴 Reducing stock for cancelled invoice ${id} (was ${previousStatus})`)
+      
+      // Reduce stock for each ligne
+      for (const ligne of facture.lignes) {
+        if (ligne.productId) {
+          const product = await prisma.product.findUnique({
+            where: { id: ligne.productId },
+            include: { stockAvailables: true }
+          })
+
+          if (product) {
+            console.log(`  Reducing stock for product ${ligne.productId} by ${ligne.quantite}`)
+            
+            // Find stock record
+            let stock = await prisma.stockAvailable.findFirst({
+              where: { productId: ligne.productId }
+            })
+            
+            if (stock && stock.quantity >= ligne.quantite) {
+              // Update existing stock (reduce it)
+              await prisma.stockAvailable.update({
+                where: { id: stock.id },
+                data: {
+                  quantity: stock.quantity - ligne.quantite
+                }
+              })
+            } else {
+              console.warn(`⚠️  Not enough stock to reduce for product ${ligne.productId}. Available: ${stock?.quantity || 0}, Requested: ${ligne.quantite}`)
+            }
+            
+            // Also reduce invoiceableQuantity
+            await prisma.product.update({
+              where: { id: ligne.productId },
+              data: {
+                invoiceableQuantity: Math.max(0, product.invoiceableQuantity - ligne.quantite)
+              }
+            })
+          }
+        }
+      }
+      console.log(`✅ Stock reduced successfully for cancelled invoice ${id}`)
+    }
+
+    
     res.json(facture)
   } catch (error: any) {
     res.status(500).json({ error: error.message })

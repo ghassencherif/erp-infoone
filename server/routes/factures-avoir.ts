@@ -61,9 +61,29 @@ router.post('/', async (req, res) => {
     const { fournisseurId, factureOriginaleId, date, motif, lignes } = req.body
     const totaux = calculerTotaux(lignes)
 
+    // Get settings for prefix
+    const settings = await prisma.companySetting.findUnique({ where: { id: 1 } });
+    const prefix = settings?.avoirPrefix || 'AC26';
+    const startNumber = settings?.avoirStartNumber || 1;
+
+    // Generate numero
+    const last = await prisma.factureAvoir.findFirst({
+      where: { numero: { startsWith: prefix } },
+      orderBy: { numero: 'desc' }
+    });
+    
+    let nextNum = startNumber;
+    if (last) {
+      const match = last.numero.match(new RegExp(`${prefix}(\\d+)`));
+      if (match) {
+        nextNum = parseInt(match[1]) + 1;
+      }
+    }
+    const numero = `${prefix}${String(nextNum).padStart(7, '0')}`;
+
     const facture = await prisma.factureAvoir.create({
       data: {
-        numero: `AV${Date.now()}`,
+        numero,
         fournisseurId,
         factureOriginaleId: factureOriginaleId || null,
         date: new Date(date),

@@ -112,11 +112,17 @@ export default function Fournisseurs() {
 
   const handleSave = async () => {
     try {
+      // Remove spaces from phone number
+      const cleanedFormData = {
+        ...formData,
+        telephone: formData.telephone?.replace(/\s+/g, '') || ''
+      };
+      
       if (editingId) {
-        await api.put(`/fournisseurs/${editingId}`, formData)
+        await api.put(`/fournisseurs/${editingId}`, cleanedFormData)
         showSnackbar('Fournisseur modifié avec succès', 'success')
       } else {
-        await api.post('/fournisseurs', formData)
+        await api.post('/fournisseurs', cleanedFormData)
         showSnackbar('Fournisseur créé avec succès', 'success')
       }
       handleCloseDialog()

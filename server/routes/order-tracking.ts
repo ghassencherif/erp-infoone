@@ -462,14 +462,18 @@ router.post('/events/create-invoice', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'eventIds required' });
     }
 
-    // Get events and their related orders
+    // Get events and their related orders with all product lines
     const events = await prisma.deliveryEvent.findMany({
       where: { id: { in: eventIds } },
       include: {
         commande: {
           include: {
             client: true,
-            lignes: true
+            lignes: {
+              include: {
+                product: true
+              }
+            }
           }
         }
       }
@@ -523,16 +527,66 @@ router.post('/events/create-invoice', authenticate, async (req, res) => {
     const lastNum = lastInvoice ? parseInt(lastInvoice.numero.replace(/\D/g, '')) || 0 : 0;
     const numero = `FC${String(lastNum + 1).padStart(6, '0')}`;
 
-    // Calculate totals - for transporter invoices, we'll use delivery fees
-    // You can customize the pricing logic here
-    const deliveryFeePerOrder = 7.0; // Default delivery fee (customize as needed)
-    const montantHT = events.length * deliveryFeePerOrder;
-    const tauxTVA = 19;
-    const montantTVA = montantHT * (tauxTVA / 100);
+    // Get delivery settings from company settings
+    const settings = await prisma.companySetting.findUnique({ where: { id: 1 } });
+    const deliveryFeeTTC = settings?.deliveryFeeDefault ?? 8; // 8 TND TTC by default
+    const deliveryTvaRate = settings?.deliveryTvaRate ?? 7; // 7% TVA
+    const deliveryFeeHT = deliveryFeeTTC / (1 + deliveryTvaRate / 100); // Calculate HT: 8 / 1.07 = 7.477
+    const deliveryFeeTVA = deliveryFeeTTC - deliveryFeeHT; // Calculate TVA portion
+
+    // Collect all product lines from all commandes (WITHOUT delivery fees)
+    const productLines: any[] = [];
+    let productsMontantHT = 0;
+    let productsMontantTVA = 0;
+
+    for (const event of events) {
+      const trackingInfo = event.commande.trackingNumber 
+        ? ` (Colis: ${event.commande.trackingNumber})` 
+        : ` (${event.commande.numero})`;
+      
+      for (const ligne of event.commande.lignes) {
+        // Add product line to invoice with tracking number reference
+        productLines.push({
+          productId: ligne.productId,
+          designation: `${ligne.designation}${trackingInfo}`,
+          quantite: ligne.quantite,
+          prixUnitaireHT: ligne.prixUnitaireHT,
+          tauxTVA: ligne.tauxTVA,
+          montantHT: ligne.montantHT,
+          montantTVA: ligne.montantTVA,
+          montantTTC: ligne.montantTTC
+        });
+        
+        productsMontantHT += ligne.montantHT;
+        productsMontantTVA += ligne.montantTVA;
+      }
+    }
+
+    // Add single delivery line at the bottom with reference based on transporter
+    const transporter = events[0]?.commande.transporter || 'TRANSPORTEUR';
+    const deliveryReference = transporter === 'ARAMEX' ? 'LIV-ARMX' : 
+                             transporter === 'FIRST_DELIVERY' ? 'LIV-FD' : 
+                             'LIV-TRANS';
+    
+    productLines.push({
+      productId: null,
+      designation: `Frais de Livraison`,
+      reference: deliveryReference,
+      quantite: events.length, // Number of commandes
+      prixUnitaireHT: deliveryFeeHT,
+      tauxTVA: deliveryTvaRate,
+      montantHT: deliveryFeeHT * events.length,
+      montantTVA: deliveryFeeTVA * events.length,
+      montantTTC: deliveryFeeTTC * events.length
+    });
+
+    // Calculate final totals (products + delivery)
+    const montantHT = productsMontantHT + (deliveryFeeHT * events.length);
+    const montantTVA = productsMontantTVA + (deliveryFeeTVA * events.length);
     const timbreFiscal = 1.0;
     const montantTTC = montantHT + montantTVA + timbreFiscal;
 
-    // Create invoice
+    // Create invoice with all product lines + delivery line
     const facture = await prisma.factureClient.create({
       data: {
         numero,
@@ -545,16 +599,7 @@ router.post('/events/create-invoice', authenticate, async (req, res) => {
         montantTTC,
         notes: `Facturation transport pour ${events.length} livraison(s): ${events.map(e => e.commande.numero).join(', ')}`,
         lignes: {
-          create: events.map(event => ({
-            productId: null,
-            designation: `Livraison commande ${event.commande.numero} - ${event.commande.transporter}`,
-            quantite: 1,
-            prixUnitaireHT: deliveryFeePerOrder,
-            tauxTVA,
-            montantHT: deliveryFeePerOrder,
-            montantTVA: deliveryFeePerOrder * (tauxTVA / 100),
-            montantTTC: deliveryFeePerOrder + (deliveryFeePerOrder * (tauxTVA / 100))
-          }))
+          create: productLines
         }
       },
       include: {
@@ -563,7 +608,7 @@ router.post('/events/create-invoice', authenticate, async (req, res) => {
       }
     });
 
-    // Mark orders as invoiced
+    // Link invoice to all commandes
     await prisma.commandeClient.updateMany({
       where: { id: { in: commandeIds } },
       data: { 

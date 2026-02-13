@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Box,
   Button,
@@ -94,6 +95,7 @@ interface FactureFournisseur {
 }
 
 export default function FacturesFournisseur() {
+  const navigate = useNavigate()
   const [factures, setFactures] = useState<FactureFournisseur[]>([])
   const [fournisseurs, setFournisseurs] = useState<Fournisseur[]>([])
   const [bonsCommande, setBonsCommande] = useState<BonDeCommande[]>([])
@@ -162,6 +164,12 @@ export default function FacturesFournisseur() {
 
   const handleOpenDialog = (facture?: FactureFournisseur) => {
     if (facture) {
+      // Check if locked (ACCEPTE or PAYE status)
+      if (['ACCEPTE', 'PAYE'].includes(facture.statut)) {
+        showSnackbar('Cette facture est verrouillée et ne peut pas être modifiée', 'error')
+        return
+      }
+      
       setEditingId(facture.id)
       setFormData({
         numero: facture.numero,
@@ -230,6 +238,18 @@ export default function FacturesFournisseur() {
     const ligne = newLignes[index]
     ligne.montantHT = ligne.quantite * ligne.prixUnitaire
     ligne.montantTVA = ligne.montantHT * ligne.tauxTVA / 100
+    
+    // If serial number is being set and product is selected, update the product
+    // Serial numbers can be comma-separated (e.g., "SN001, SN002, SN003")
+    if (field === 'serialNumber' && ligne.productId && value) {
+      const serials = value.split(',').map((s: string) => s.trim()).filter((s: string) => s);
+      // If single serial, update product; if multiple, just keep in line
+      if (serials.length === 1) {
+        api.patch(`/products/${ligne.productId}`, { serialNumber: serials[0] }).catch(e => {
+          console.error('Error updating product serial number:', e);
+        });
+      }
+    }
     
     setFormData({ ...formData, lignes: newLignes })
   }
@@ -338,13 +358,35 @@ export default function FacturesFournisseur() {
       if (editingId) {
         await api.put(`/factures-fournisseur/${editingId}`, data)
         showSnackbar('Facture modifiée avec succès', 'success')
+        handleCloseDialog()
+        loadData()
       } else {
-        await api.post('/factures-fournisseur', data)
-        showSnackbar('Facture créée avec succès', 'success')
+        const response = await api.post('/factures-fournisseur', data)
+        const newInvoiceId = response.data.id
+        showSnackbar('Facture créée avec succès. Vous pouvez maintenant ajouter plus de lignes ou changer le statut.', 'success')
+        
+        // Reload data to get the new invoice
+        await loadData()
+        
+        // Open the newly created invoice for editing
+        const newInvoice = response.data
+        setTimeout(() => {
+          setEditingId(newInvoiceId)
+          setFormData({
+            numero: newInvoice.numero,
+            fournisseurId: newInvoice.fournisseur.id.toString(),
+            bonCommandeId: newInvoice.bonCommande?.id?.toString() || '',
+            date: newInvoice.date.split('T')[0],
+            dateEcheance: newInvoice.dateEcheance.split('T')[0],
+            statut: newInvoice.statut,
+            lignes: newInvoice.lignes.map((l: any) => ({
+              ...l,
+              productId: l.productId || null
+            }))
+          })
+          setOpenDialog(true)
+        }, 300)
       }
-
-      handleCloseDialog()
-      loadData()
     } catch (error) {
       console.error('Erreur sauvegarde:', error)
       showSnackbar('Erreur lors de la sauvegarde', 'error')
@@ -426,10 +468,8 @@ export default function FacturesFournisseur() {
           fullWidth
         >
           <MenuItem value="BROUILLON">Brouillon</MenuItem>
-          <MenuItem value="ENVOYE">Envoyé</MenuItem>
-          <MenuItem value="ACCEPTE">Accepté</MenuItem>
-          <MenuItem value="PAYE">Payé</MenuItem>
-          <MenuItem value="REFUSE">Refusé</MenuItem>
+          <MenuItem value="ACCEPTE">Accepté (Non payé)</MenuItem>
+          <MenuItem value="PAYE">Accepté (Payé)</MenuItem>
           <MenuItem value="ANNULE">Annulé</MenuItem>
         </Select>
       )
@@ -560,12 +600,18 @@ export default function FacturesFournisseur() {
           )}
         </Paper>
 
-        <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="lg" fullWidth>
+        <Dialog open={openDialog} onClose={handleCloseDialog} fullScreen>
           <DialogTitle>
             {editingId ? 'Modifier la Facture' : 'Nouvelle Facture'}
           </DialogTitle>
           <DialogContent>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+              {['ACCEPTE', 'PAYE'].includes(formData.statut) && (
+                <Alert severity="warning">
+                  ⚠️ Cette facture est verrouillée. Les lignes ne peuvent pas être modifiées car son statut est {formData.statut === 'ACCEPTE' ? 'Accepté' : 'Payé'}. 
+                  Le stock a été ajouté au statut <strong>{formData.statut === 'ACCEPTE' ? 'Accepté' : 'Payé'}</strong>.
+                </Alert>
+              )}
               <TextField
                 label="Numéro de Facture *"
                 value={formData.numero}
@@ -632,10 +678,8 @@ export default function FacturesFournisseur() {
                     onChange={(e) => setFormData({ ...formData, statut: e.target.value })}
                   >
                     <MenuItem value="BROUILLON">Brouillon</MenuItem>
-                    <MenuItem value="ENVOYE">Envoyé</MenuItem>
-                    <MenuItem value="ACCEPTE">Accepté</MenuItem>
-                    <MenuItem value="PAYE">Payé</MenuItem>
-                    <MenuItem value="REFUSE">Refusé</MenuItem>
+                    <MenuItem value="ACCEPTE">Accepté (Non payé)</MenuItem>
+                    <MenuItem value="PAYE">Accepté (Payé)</MenuItem>
                     <MenuItem value="ANNULE">Annulé</MenuItem>
                   </Select>
                 </FormControl>
@@ -644,7 +688,11 @@ export default function FacturesFournisseur() {
               <Box>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                   <Typography variant="h6">Lignes</Typography>
-                  <Button startIcon={<AddIcon />} onClick={handleAddLigne}>
+                  <Button 
+                    startIcon={<AddIcon />} 
+                    onClick={handleAddLigne}
+                    disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
+                  >
                     Ajouter une ligne
                   </Button>
                 </Box>
@@ -674,6 +722,7 @@ export default function FacturesFournisseur() {
                             <TableRow key={index}>
                               <TableCell>
                                 <Autocomplete
+                                  disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
                                   options={getSortedProducts(formData.fournisseurId)}
                                   filterOptions={filterOptions}
                                   getOptionLabel={(option) => {
@@ -726,6 +775,7 @@ export default function FacturesFournisseur() {
                                 <TextField
                                   size="small"
                                   fullWidth
+                                  disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
                                   value={ligne.designation}
                                   onChange={(e) => handleLigneChange(index, 'designation', e.target.value)}
                                 />
@@ -734,6 +784,7 @@ export default function FacturesFournisseur() {
                                 <TextField
                                   size="small"
                                   fullWidth
+                                  disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
                                   value={ligne.fournisseurReference || ''}
                                   onChange={(e) => handleLigneChange(index, 'fournisseurReference', e.target.value)}
                                   placeholder="Réf. fournisseur"
@@ -743,6 +794,7 @@ export default function FacturesFournisseur() {
                                 <TextField
                                   size="small"
                                   fullWidth
+                                  disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
                                   value={ligne.serialNumber || ''}
                                   onChange={(e) => handleLigneChange(index, 'serialNumber', e.target.value)}
                                   placeholder="N° série"
@@ -752,6 +804,7 @@ export default function FacturesFournisseur() {
                                 <TextField
                                   size="small"
                                   type="number"
+                                  disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
                                   value={ligne.quantite}
                                   onChange={(e) => handleLigneChange(index, 'quantite', parseFloat(e.target.value))}
                                   inputProps={{ min: 0, step: 1 }}
@@ -761,19 +814,25 @@ export default function FacturesFournisseur() {
                                 <TextField
                                   size="small"
                                   type="number"
+                                  disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
                                   value={ligne.prixUnitaire}
                                   onChange={(e) => handleLigneChange(index, 'prixUnitaire', parseFloat(e.target.value))}
                                   inputProps={{ min: 0, step: 0.001 }}
                                 />
                               </TableCell>
                               <TableCell>
-                                <TextField
+                                <Select
                                   size="small"
-                                  type="number"
+                                  disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
                                   value={ligne.tauxTVA}
                                   onChange={(e) => handleLigneChange(index, 'tauxTVA', parseFloat(e.target.value))}
-                                  inputProps={{ min: 0, step: 1 }}
-                                />
+                                  sx={{ minWidth: 80 }}
+                                >
+                                  <MenuItem value={0}>0%</MenuItem>
+                                  <MenuItem value={7}>7%</MenuItem>
+                                  <MenuItem value={13}>13%</MenuItem>
+                                  <MenuItem value={19}>19%</MenuItem>
+                                </Select>
                               </TableCell>
                               <TableCell>
                                 <Typography variant="body2">{ligne.montantHT.toFixed(3)}</Typography>
@@ -782,7 +841,12 @@ export default function FacturesFournisseur() {
                                 <Typography variant="body2">{ligne.montantTVA.toFixed(3)}</Typography>
                               </TableCell>
                               <TableCell>
-                                <IconButton size="small" onClick={() => handleRemoveLigne(index)} color="error">
+                                <IconButton 
+                                  size="small" 
+                                  onClick={() => handleRemoveLigne(index)} 
+                                  disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
+                                  color="error"
+                                >
                                   <RemoveIcon />
                                 </IconButton>
                               </TableCell>
@@ -809,7 +873,11 @@ export default function FacturesFournisseur() {
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseDialog}>Annuler</Button>
-            <Button onClick={handleSubmit} variant="contained">
+            <Button 
+              onClick={handleSubmit} 
+              variant="contained"
+              disabled={['ACCEPTE', 'PAYE'].includes(formData.statut)}
+            >
               {editingId ? 'Modifier' : 'Créer'}
             </Button>
           </DialogActions>

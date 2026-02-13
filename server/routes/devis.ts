@@ -59,9 +59,29 @@ router.post('/', async (req, res) => {
     const { fournisseurId, date, dateValidite, statut, lignes } = req.body
     const totaux = calculerTotaux(lignes)
 
+    // Get settings for prefix
+    const settings = await prisma.companySetting.findUnique({ where: { id: 1 } });
+    const prefix = settings?.devisPrefix || 'DV26';
+    const startNumber = settings?.devisStartNumber || 1;
+
+    // Generate numero
+    const last = await prisma.devis.findFirst({
+      where: { numero: { startsWith: prefix } },
+      orderBy: { numero: 'desc' }
+    });
+    
+    let nextNum = startNumber;
+    if (last) {
+      const match = last.numero.match(new RegExp(`${prefix}(\\d+)`));
+      if (match) {
+        nextNum = parseInt(match[1]) + 1;
+      }
+    }
+    const numero = `${prefix}${String(nextNum).padStart(7, '0')}`;
+
     const devisItem = await prisma.devis.create({
       data: {
-        numero: `DEV${Date.now()}`,
+        numero,
         fournisseurId,
         date: new Date(date),
         dateValidite: new Date(dateValidite),

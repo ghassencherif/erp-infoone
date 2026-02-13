@@ -240,6 +240,7 @@ export default function TrackingDashboard() {
     { field: 'numero', headerName: 'Commande', flex: 0.9, valueGetter: (_v, row) => row.commande?.numero },
     { field: 'client', headerName: 'Client', flex: 1, valueGetter: (_v, row) => row.commande?.client?.name || '' },
     { field: 'transporter', headerName: 'Transporteur', flex: 0.8, valueGetter: (_v, row) => row.commande?.transporter || '' },
+    { field: 'tracking', headerName: 'Tracking', flex: 1, valueGetter: (_v, row) => row.commande?.trackingNumber || '' },
     { field: 'newStatus', headerName: 'Statut', flex: 0.8, renderCell: (params) => (
       <Chip label={statusLabels[params.value || 'DELIVERED'] || params.value} size="small" color="success" />
     ) },
@@ -298,7 +299,8 @@ export default function TrackingDashboard() {
       e.commande?.numero,
       e.commande?.client?.name,
       e.commande?.transporter || null,
-      e.commande?.deliveryStatus || null
+      e.commande?.deliveryStatus || null,
+      e.commande?.trackingNumber || null
     ])
   );
 
@@ -495,6 +497,7 @@ export default function TrackingDashboard() {
             checkboxSelection
             rowSelectionModel={selectedEvents}
             onRowSelectionModelChange={(sel) => setSelectedEvents(sel as number[])}
+            isRowSelectable={(params) => !params.row.commande?.transporterInvoiced}
             pageSizeOptions={[10, 25]}
           />
         </div>

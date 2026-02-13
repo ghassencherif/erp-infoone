@@ -60,8 +60,8 @@ router.post('/sale', authenticate, async (req, res) => {
       const unit = it.prixUnitaireHT ?? (product ? product.price : 0)
       const qty = Math.max(1, parseInt(String(it.quantity)))
 
-      // Validate stock
-      if (product?.id) {
+      // Validate stock (skip for services)
+      if (product?.id && !product.isService) {
         const availableStock = product.stockAvailables[0]?.quantity ?? 0
         if (qty > availableStock) {
           return res.status(400).json({ error: `Stock insuffisant pour ${product.name}. Disponible: ${availableStock}, demandé: ${qty}` })

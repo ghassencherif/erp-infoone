@@ -63,11 +63,17 @@ export default function Clients() {
         return;
       }
       
+      // Remove spaces from phone number
+      const cleanedFormData = {
+        ...formData,
+        phone: formData.phone?.replace(/\s+/g, '') || ''
+      };
+      
       if (editingClient) {
-        await api.put(`/clients/${editingClient.id}`, formData);
+        await api.put(`/clients/${editingClient.id}`, cleanedFormData);
         setSnackbar({ open: true, message: 'Client modifié', severity: 'success' });
       } else {
-        await api.post('/clients', formData);
+        await api.post('/clients', cleanedFormData);
         setSnackbar({ open: true, message: 'Client ajouté', severity: 'success' });
       }
       setOpenDialog(false);

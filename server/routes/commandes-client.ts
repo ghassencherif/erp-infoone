@@ -23,7 +23,10 @@ router.get('/', authenticate, async (req, res) => {
           include: { product: true }
         }
       },
-      orderBy: { date: 'desc' }
+      orderBy: [
+        { createdAt: 'desc' },
+        { id: 'desc' }
+      ]
     });
     
     // Add hasFacture, hasBonCommande, hasBonLivraison and related numbers to response
@@ -85,7 +88,7 @@ router.get('/:id', authenticate, async (req, res) => {
 // Create order
 router.post('/', authenticate, async (req, res) => {
   try {
-    const { clientId, devisClientId, date, dateEcheance, statut, lignes, notes, deliveryFree } = req.body;
+    const { clientId, devisClientId, date, dateEcheance, statut, source, lignes, notes, deliveryFree } = req.body;
 
     const settings = await prisma.companySetting.findUnique({ where: { id: 1 } });
     const deliveryFeeDefaultTTC = settings?.deliveryFeeDefault ?? 8;
@@ -122,14 +125,25 @@ router.post('/', authenticate, async (req, res) => {
     montantTVA += deliveryTVA;
     const montantTTC = montantHT + montantTVA + timbreFiscal;
     
-    // Generate order number
+    // Generate order number using settings prefix
+    const prefix = settings?.commandePrefix || 'CC26';
+    const startNumber = settings?.commandeStartNumber || 1;
+    
     const lastCommande = await prisma.commandeClient.findFirst({
+      where: { numero: { startsWith: prefix } },
       orderBy: { numero: 'desc' }
     });
-    const lastNum = lastCommande ? parseInt(lastCommande.numero.replace('CC', '')) : 0;
-    const numero = `CC${String(lastNum + 1).padStart(6, '0')}`;
     
-    // Validate stock availability before creating commande
+    let nextNum = startNumber;
+    if (lastCommande) {
+      const match = lastCommande.numero.match(new RegExp(`${prefix}(\\d+)`));
+      if (match) {
+        nextNum = parseInt(match[1]) + 1;
+      }
+    }
+    const numero = `${prefix}${String(nextNum).padStart(7, '0')}`;
+    
+    // Validate stock availability before creating commande (skip for services)
     const stockErrors: string[] = [];
     for (const ligne of lignesData) {
       if (ligne.productId) {
@@ -137,6 +151,11 @@ router.post('/', authenticate, async (req, res) => {
           where: { productId: ligne.productId },
           include: { product: true }
         });
+        
+        // Skip stock validation for services
+        if (stock?.product?.isService) {
+          continue;
+        }
         
         if (!stock) {
           stockErrors.push(`Produit "${ligne.designation}" n'a pas de stock configuré`);
@@ -161,6 +180,7 @@ router.post('/', authenticate, async (req, res) => {
         date: new Date(date),
         dateEcheance: dateEcheance ? new Date(dateEcheance) : null,
         statut,
+        source: source || 'OTHER',
         montantHT,
         montantTVA,
         timbreFiscal,
@@ -179,13 +199,14 @@ router.post('/', authenticate, async (req, res) => {
       }
     });
     
-    // Decrease stock for products
+    // Decrease stock for products (skip for services)
     for (const ligne of lignesData) {
       if (ligne.productId) {
         const stock = await prisma.stockAvailable.findFirst({
-          where: { productId: ligne.productId }
+          where: { productId: ligne.productId },
+          include: { product: true }
         });
-        if (stock) {
+        if (stock && !stock.product?.isService) {
           await prisma.stockAvailable.update({
             where: { id: stock.id },
             data: { quantity: { decrement: ligne.quantite } }
@@ -204,17 +225,25 @@ router.post('/', authenticate, async (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
-    const { clientId, devisClientId, date, dateEcheance, statut, lignes, notes, deliveryFree } = req.body;
+    const { clientId, devisClientId, date, dateEcheance, statut, source, lignes, notes, deliveryFree } = req.body;
 
     const settings = await prisma.companySetting.findUnique({ where: { id: 1 } });
     const deliveryFeeDefaultTTC = settings?.deliveryFeeDefault ?? 8;
     const deliveryTvaRate = settings?.deliveryTvaRate ?? 7;
     
-    // Get old commande to check status change
+    // Get old commande to check status change and handle stock adjustments
     const oldCommande = await prisma.commandeClient.findUnique({
       where: { id: parseInt(id) },
-      include: { lignes: true }
+      include: { 
+        lignes: true,
+        bonCommandeClient: true,
+        bonLivraisonClient: true
+      }
     });
+
+    if (!oldCommande) {
+      return res.status(404).json({ error: 'Commande non trouvée' });
+    }
     
     let montantHT = 0;
     let montantTVA = 0;
@@ -246,8 +275,64 @@ router.put('/:id', authenticate, async (req, res) => {
     montantTVA += deliveryTVA;
     const montantTTC = montantHT + montantTVA + timbreFiscal;
     
+    // Handle stock adjustments for line quantity changes (not for status changes)
+    // Only adjust stock if we're not changing status to ANNULE
+    if (statut !== 'ANNULE') {
+      // Create a map of old lines by productId
+      const oldLinesMap = new Map();
+      for (const oldLigne of oldCommande.lignes) {
+        if (oldLigne.productId) {
+          oldLinesMap.set(oldLigne.productId, oldLigne.quantite);
+        }
+      }
+
+      // Compare new lines to old lines and adjust stock
+      for (const newLigne of lignesData) {
+        if (newLigne.productId) {
+          const oldQty = oldLinesMap.get(newLigne.productId) || 0;
+          const qtyDifference = oldQty - newLigne.quantite; // positive = decrease needed, negative = increase needed
+
+          if (qtyDifference !== 0) {
+            const stock = await prisma.stockAvailable.findFirst({
+              where: { productId: newLigne.productId }
+            });
+
+            if (stock) {
+              // If quantity decreased, return to stock; if increased, reduce from stock
+              await prisma.stockAvailable.update({
+                where: { id: stock.id },
+                data: { quantity: { increment: qtyDifference } }
+              });
+              console.log(`Stock adjusted for product ${newLigne.productId}: ${qtyDifference > 0 ? '+' : ''}${qtyDifference}`);
+            }
+          }
+        }
+      }
+
+      // Handle new products added (not in old lines)
+      const newProductIds = new Set(lignesData.filter(l => l.productId).map(l => l.productId));
+      const oldProductIds = new Set(oldCommande.lignes.filter(l => l.productId).map(l => l.productId));
+
+      for (const ligne of lignesData) {
+        if (ligne.productId && !oldProductIds.has(ligne.productId)) {
+          // This is a new product, reduce from stock
+          const stock = await prisma.stockAvailable.findFirst({
+            where: { productId: ligne.productId }
+          });
+
+          if (stock && stock.quantity >= ligne.quantite) {
+            await prisma.stockAvailable.update({
+              where: { id: stock.id },
+              data: { quantity: { decrement: ligne.quantite } }
+            });
+            console.log(`New product added: stock reduced by ${ligne.quantite}`);
+          }
+        }
+      }
+    }
+    
     // If status changed to ANNULE, restore stock
-    if (oldCommande && oldCommande.statut !== 'ANNULE' && statut === 'ANNULE') {
+    if (oldCommande.statut !== 'ANNULE' && statut === 'ANNULE') {
       for (const ligne of oldCommande.lignes) {
         if (ligne.productId) {
           const stock = await prisma.stockAvailable.findFirst({
@@ -264,7 +349,7 @@ router.put('/:id', authenticate, async (req, res) => {
     }
     
     // If status changed from ANNULE to something else, decrease stock again
-    if (oldCommande && oldCommande.statut === 'ANNULE' && statut !== 'ANNULE') {
+    if (oldCommande.statut === 'ANNULE' && statut !== 'ANNULE') {
       for (const ligneData of lignesData) {
         if (ligneData.productId) {
           const stock = await prisma.stockAvailable.findFirst({
@@ -292,6 +377,7 @@ router.put('/:id', authenticate, async (req, res) => {
         date: new Date(date),
         dateEcheance: dateEcheance ? new Date(dateEcheance) : null,
         statut,
+        source: source || 'OTHER',
         montantHT,
         montantTVA,
         timbreFiscal,
@@ -306,12 +392,74 @@ router.put('/:id', authenticate, async (req, res) => {
       include: {
         client: true,
         devisClient: true,
-        lignes: { include: { product: true } }
+        lignes: { include: { product: true } },
+        bonCommandeClient: true,
+        bonLivraisonClient: true
       }
     });
+
+    // If there are linked Bon de Commande or Bon de Livraison, update their lines
+    if (oldCommande.bonCommandeClientId) {
+      // Update Bon de Commande with new commande lines
+      const bonLignesData = lignesData.map(l => ({
+        productId: l.productId,
+        designation: l.designation,
+        quantite: l.quantite,
+        prixUnitaireHT: l.prixUnitaireHT,
+        tauxTVA: l.tauxTVA,
+        montantHT: l.montantHT,
+        montantTVA: l.montantTVA,
+        montantTTC: l.montantTTC
+      }));
+
+      await prisma.ligneBonCommandeClient.deleteMany({
+        where: { bonCommandeClientId: oldCommande.bonCommandeClientId }
+      });
+
+      await prisma.bonCommandeClient.update({
+        where: { id: oldCommande.bonCommandeClientId },
+        data: {
+          lignes: { create: bonLignesData },
+          montantHT,
+          montantTVA,
+          montantTTC: montantHT + montantTVA + 1.0
+        }
+      });
+      console.log(`Bon de Commande ${oldCommande.bonCommandeClientId} updated with new lines`);
+    }
+
+    if (oldCommande.bonLivraisonClientId) {
+      // Update Bon de Livraison with new commande lines
+      const blLignesData = lignesData.map(l => ({
+        productId: l.productId,
+        designation: l.designation,
+        quantite: l.quantite,
+        prixUnitaireHT: l.prixUnitaireHT,
+        tauxTVA: l.tauxTVA,
+        montantHT: l.montantHT,
+        montantTVA: l.montantTVA,
+        montantTTC: l.montantTTC
+      }));
+
+      await prisma.ligneBonLivraisonClient.deleteMany({
+        where: { bonLivraisonClientId: oldCommande.bonLivraisonClientId }
+      });
+
+      await prisma.bonLivraisonClient.update({
+        where: { id: oldCommande.bonLivraisonClientId },
+        data: {
+          lignes: { create: blLignesData },
+          montantHT,
+          montantTVA,
+          montantTTC: montantHT + montantTVA + 1.0
+        }
+      });
+      console.log(`Bon de Livraison ${oldCommande.bonLivraisonClientId} updated with new lines`);
+    }
     
     res.json(commande);
   } catch (error: any) {
+    console.error('Error updating commande:', error);
     res.status(500).json({ error: error.message });
   }
 });

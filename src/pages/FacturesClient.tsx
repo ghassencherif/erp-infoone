@@ -168,7 +168,7 @@ export default function FacturesClient() {
       const res = await api.post('/clients', {
         name: newClientData.name,
         email: newClientData.email || null,
-        phone: newClientData.phone || null,
+        phone: (newClientData.phone || '').replace(/\s+/g, '') || null,
         address: newClientData.address || null,
         type: newClientData.type,
         matriculeFiscale: newClientData.type === 'PROFESSIONNEL' ? newClientData.matriculeFiscale : null
@@ -804,7 +804,7 @@ export default function FacturesClient() {
           Détails Facture
           <Button variant="contained" startIcon={<PrintIcon />} onClick={() => {
             if (selectedFacture) {
-              window.open(`http://localhost:3000/print/facture/${selectedFacture.id}`, '_blank');
+              window.open(`/print/facture/${selectedFacture.id}`, '_blank');
             }
           }}>
             Imprimer

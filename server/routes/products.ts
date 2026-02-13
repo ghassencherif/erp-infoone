@@ -3,6 +3,8 @@ import prisma from '../lib/prisma'
 import { authenticate } from '../middleware/auth'
 import { XMLParser } from 'fast-xml-parser'
 import axios from 'axios'
+import XLSX from 'xlsx'
+import multer from 'multer'
 
 type CategoryInfo = { id: string, parentId: string | null, name: string }
 
@@ -43,6 +45,29 @@ function getLocalizedText(value: any): string {
 }
 
 const router = Router()
+const upload = multer({ storage: multer.memoryStorage() })
+
+const toNumber = (value: any) => {
+  if (value === null || value === undefined || value === '') return 0
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const normalized = value.replace(',', '.').trim()
+    const num = Number(normalized)
+    return Number.isNaN(num) ? 0 : num
+  }
+  const num = Number(value)
+  return Number.isNaN(num) ? 0 : num
+}
+
+const toInt = (value: any) => {
+  const num = Math.round(toNumber(value))
+  return Number.isNaN(num) ? 0 : num
+}
+
+const normalizeTvaRate = (value: any) => {
+  const raw = toNumber(value)
+  return raw <= 1 ? raw * 100 : raw
+}
 
 // Get all products
 router.get('/', authenticate, async (req, res) => {
@@ -56,6 +81,99 @@ router.get('/', authenticate, async (req, res) => {
       }
     })
     res.json(products)
+  } catch (error: any) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// Import products from Excel (PRODUCT001 format)
+router.post('/import-excel', authenticate, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Fichier manquant' })
+    }
+
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' })
+    const sheetName = wb.SheetNames[0]
+    const ws = wb.Sheets[sheetName]
+    const rows: any[] = XLSX.utils.sheet_to_json(ws, { defval: '' })
+
+    let created = 0
+    let updated = 0
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+
+      const reference = row['REF FAC'] ? String(row['REF FAC']).trim() : ''
+      const sku = row['REF PRESTA'] ? String(row['REF PRESTA']).trim() : ''
+      const name = row['Désignation'] ? String(row['Désignation']).trim() : (sku || reference || `Produit sans designation ${i + 1}`)
+
+      const stockReal = toInt(row['QT REEL'])
+      const invoiceable = toInt(row['QT FAC'])
+      const priceTTC = toNumber(row['P.V TTC (+7%)'])
+      const costTTC = toNumber(row['P.A TTC'])
+      const tvaRate = normalizeTvaRate(row['TVA'])
+
+      let existing: any = null
+      if (reference) {
+        existing = await prisma.product.findFirst({ where: { reference } })
+      } else if (sku) {
+        existing = await prisma.product.findFirst({ where: { sku } })
+      } else if (name) {
+        existing = await prisma.product.findFirst({ where: { name } })
+      }
+
+      if (existing) {
+        await prisma.product.update({
+          where: { id: existing.id },
+          data: {
+            reference: reference || existing.reference || null,
+            sku: sku || existing.sku || null,
+            name,
+            description: name,
+            price: priceTTC,
+            cost: costTTC,
+            tvaRate,
+            invoiceableQuantity: invoiceable
+          }
+        })
+
+        const existingStock = await prisma.stockAvailable.findFirst({ where: { productId: existing.id } })
+        if (existingStock) {
+          await prisma.stockAvailable.update({
+            where: { id: existingStock.id },
+            data: { quantity: stockReal }
+          })
+        } else {
+          await prisma.stockAvailable.create({
+            data: { productId: existing.id, quantity: stockReal }
+          })
+        }
+
+        updated++
+        continue
+      }
+
+      await prisma.product.create({
+        data: {
+          reference: reference || null,
+          sku: sku || null,
+          name,
+          description: name,
+          price: priceTTC,
+          cost: costTTC,
+          tvaRate,
+          invoiceableQuantity: invoiceable,
+          stockAvailables: {
+            create: { quantity: stockReal }
+          }
+        }
+      })
+
+      created++
+    }
+
+    res.json({ message: 'Import terminé', created, updated })
   } catch (error: any) {
     res.status(500).json({ error: error.message })
   }
