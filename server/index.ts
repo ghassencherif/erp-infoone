@@ -28,6 +28,10 @@ dotenv.config()
 const app = express()
 const PORT = process.env.PORT || 5000
 
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000')
   .split(',')
   .map(origin => origin.trim())
@@ -68,6 +72,6 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' })
 })
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`)
-})
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+});
