@@ -5,22 +5,22 @@
 
 */
 -- AlterTable
-ALTER TABLE `boncommandeclient` ADD COLUMN `bonLivraisonClientId` INTEGER NULL,
+ALTER TABLE `BonCommandeClient` ADD COLUMN `bonLivraisonClientId` INTEGER NULL,
     ADD COLUMN `factureClientId` INTEGER NULL;
 
 -- AlterTable
-ALTER TABLE `bonlivraisonclient` DROP COLUMN `timbreFiscal`,
+ALTER TABLE `BonLivraisonClient` DROP COLUMN `timbreFiscal`,
     ADD COLUMN `deliveryFee` DOUBLE NOT NULL DEFAULT 0,
     ADD COLUMN `deliveryTvaRate` DOUBLE NOT NULL DEFAULT 7,
     ADD COLUMN `factureClientId` INTEGER NULL;
 
 -- AlterTable
-ALTER TABLE `client` ADD COLUMN `matriculeFiscale` VARCHAR(191) NULL,
+ALTER TABLE `Client` ADD COLUMN `matriculeFiscale` VARCHAR(191) NULL,
     ADD COLUMN `type` VARCHAR(191) NOT NULL DEFAULT 'PARTICULIER',
     ALTER COLUMN `code` DROP DEFAULT;
 
 -- AlterTable
-ALTER TABLE `commandeclient` ADD COLUMN `bonCommandeClientId` INTEGER NULL,
+ALTER TABLE `CommandeClient` ADD COLUMN `bonCommandeClientId` INTEGER NULL,
     ADD COLUMN `bonLivraisonClientId` INTEGER NULL,
     ADD COLUMN `deliveryDate` DATETIME(3) NULL,
     ADD COLUMN `deliveryFee` DOUBLE NOT NULL DEFAULT 0,
@@ -46,19 +46,19 @@ ALTER TABLE `CompanySetting` ADD COLUMN `deliveryFeeDefault` DOUBLE NOT NULL DEF
     ADD COLUMN `rib` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `factureclient` ADD COLUMN `deliveryFee` DOUBLE NOT NULL DEFAULT 0,
+ALTER TABLE `FactureClient` ADD COLUMN `deliveryFee` DOUBLE NOT NULL DEFAULT 0,
     ADD COLUMN `deliveryTvaRate` DOUBLE NOT NULL DEFAULT 7,
     ADD COLUMN `remise` DOUBLE NOT NULL DEFAULT 0;
 
 -- AlterTable
-ALTER TABLE `lignecommandeclient` ADD COLUMN `serialNumberUsed` VARCHAR(191) NULL;
+ALTER TABLE `LigneCommandeClient` ADD COLUMN `serialNumberUsed` VARCHAR(191) NULL;
 
 -- AlterTable
-ALTER TABLE `lignefactureclient` ADD COLUMN `reference` VARCHAR(191) NULL,
+ALTER TABLE `LigneFactureClient` ADD COLUMN `reference` VARCHAR(191) NULL,
     ADD COLUMN `remise` DOUBLE NOT NULL DEFAULT 0;
 
 -- AlterTable
-ALTER TABLE `lignefacturefournisseur` ADD COLUMN `quantiteRestante` INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE `LigneFactureFournisseur` ADD COLUMN `quantiteRestante` INTEGER NOT NULL DEFAULT 0;
 
 -- AlterTable
 ALTER TABLE `Product` ADD COLUMN `category` VARCHAR(191) NULL,
