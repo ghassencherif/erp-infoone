@@ -7,8 +7,4 @@
 -- ALTER TABLE `CommandeClient` ADD COLUMN `remise` FLOAT NOT NULL DEFAULT 0;
 
 -- Migration is a no-op since columns were added in previous attempt
-<<<<<<< Updated upstream
 SELECT 1;
-=======
-SELECT 1;
->>>>>>> Stashed changes
